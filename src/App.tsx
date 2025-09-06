@@ -32,7 +32,9 @@ import {
 } from "./components/ui/dialog";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+
+import authService from './components/backend/auth/authService';
 
 import {
   AlertDialog,
@@ -210,6 +212,31 @@ export default function App() {
   const [wifiPassword, setWifiPassword] = useState("");
   const [isConnected, setIsConnected] = useState(false);
 
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [loginError, setLoginError] = useState('');
+
+  useEffect(() => {
+    const unsubscribe = authService.onAuthStateChange((user) => {
+      setUser(user);
+      
+      if (user) {
+        // Check if user is admin and set state accordingly
+        const isAdmin = authService.isAdmin(user);
+        setIsAdminLoggedIn(isAdmin);
+        if (isAdmin) {
+          setCurrentPage("dashboard");
+        }
+      } else {
+        setIsAdminLoggedIn(false);
+      }
+      
+      setAuthLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
   // computed inside the component (so it re-evaluates after state changes)
   const availableProfessors = facultyMembers.filter((prof) => {
     // check whether any device (any facultyMembers item) currently has this professor assigned
@@ -255,9 +282,20 @@ export default function App() {
     }
   };
 
-  const handleOffice365Login = () => {
-    alert("Redirecting to Office 365 login...");
-    setStudentLoginOpen(false);
+  const handleOffice365Login = async () => {
+    setLoginError('');
+    try {
+      const result = await authService.loginWithMicrosoft();
+      if (result.success) {
+        setStudentLoginOpen(false);
+        // Handle successful student login
+        console.log('Student logged in:', result.user);
+      } else {
+        setLoginError(result.error);
+      }
+    } catch (error) {
+      setLoginError('Failed to login with Microsoft');
+    }
   };
 
   const handleMeetingRequest = (facultyName) => {
@@ -276,20 +314,38 @@ export default function App() {
     }
   };
 
-  const handleAdminLogin = () => {
-    if (adminEmail && adminPassword) {
-      setIsAdminLoggedIn(true);
-      setAdminLoginOpen(false);
-      setAdminEmail("tj23");
-      setAdminPassword("12345");
-      setCurrentPage("dashboard");
+  const handleAdminLogin = async () => {
+    if (!adminEmail || !adminPassword) return;
+    
+    setLoginError('');
+    try {
+      const result = await authService.loginAdmin(adminEmail, adminPassword);
+      if (result.success) {
+        setAdminLoginOpen(false);
+        setAdminEmail("");
+        setAdminPassword("");
+       
+        // isAdminLoggedIn will be set by the auth state observer
+      } else {
+        setLoginError(result.error);
+      }
+    } catch (error) {
+      setLoginError('Login failed');
     }
   };
 
-  const handleAdminLogout = () => {
-    setIsAdminLoggedIn(false);
-    setCurrentPage("dashboard");
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+      setIsAdminLoggedIn(false);
+      setCurrentPage("dashboard");
+      // State will be updated by the auth observer
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
+
+  
 
   const handleToggleRfidAccess = (facultyId) => {
     setFacultyMembers((prev) =>
@@ -478,13 +534,28 @@ export default function App() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleAdminLogout}
+                  onClick={handleLogout}
                 >
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
                 </Button>
               )}
-              {!isAdminLoggedIn && (
+              {!isAdminLoggedIn && user && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 font-medium">
+                    {user.displayName || user.email}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
+                </div>
+              )}
+              {!isAdminLoggedIn && !user && (
                 <>
                   <Dialog
                     open={studentLoginOpen}
@@ -854,6 +925,8 @@ export default function App() {
                                   faculty.name,
                                 )
                               }
+                              disabled={!user}
+                              className={!user ? "opacity-50 cursor-not-allowed" : ""}
                             >
                               Req. Meeting
                             </Button>

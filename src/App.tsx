@@ -203,6 +203,7 @@ export default function App() {
   const [selectedRfid, setSelectedRfid] = useState(null);
   const [isAssignDialogOpen, setIsAssignDialogOpen] =
     useState(false);
+  const [isAddRfidPopupOpen, setIsAddRfidPopupOpen] = useState(false);
 
   // Hardware settings states
   const [ssid, setSsid] = useState("");
@@ -287,6 +288,7 @@ export default function App() {
 
   const handleAdminLogout = () => {
     setIsAdminLoggedIn(false);
+    setCurrentPage("dashboard");
   };
 
   const handleToggleRfidAccess = (facultyId) => {
@@ -674,6 +676,23 @@ export default function App() {
                 Assign RFID
               </Button>
             </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add RFID Scanner Popup */}
+        <Dialog
+          open={isAddRfidPopupOpen}
+          onOpenChange={setIsAddRfidPopupOpen}
+        >
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader className="text-center">
+              <DialogTitle>Add New RFID Tag</DialogTitle>
+              <div className="text-center">
+                <p className="text-lg font-medium text-black">
+                  Scanner is in scan mode, tap the RFID to add the UID to database
+                </p>
+              </div>
+            </DialogHeader>
           </DialogContent>
         </Dialog>
 
@@ -1191,7 +1210,11 @@ export default function App() {
                     </p>
                   </div>
                   {/* ✅ Add RFID Button */}
-                  <Button variant="default" size="sm">
+                  <Button 
+                    variant="default" 
+                    size="sm"
+                    onClick={() => setIsAddRfidPopupOpen(true)}
+                  >
                     Add RFID
                   </Button>
                 </CardHeader>
@@ -1245,17 +1268,68 @@ export default function App() {
                             </span>
                           </div>
 
-                          {/* Assign Prof Button */}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              handleRfidAssignClick(faculty); // this should set selectedFacultyForRfid and open dialog
-                            }}
-                          >
-                            <CreditCard className="w-4 h-4 mr-2" />
-                            Assign Prof
-                          </Button>
+                          {/* Assign/Unassign Prof Button */}
+                          {faculty.assignedProfId ? (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                                >
+                                  <CreditCard className="w-4 h-4 mr-2" />
+                                  Unassign Prof
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>
+                                    Are you sure?
+                                  </AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    Are you sure you want to unassign{" "}
+                                    <b>
+                                      {
+                                        facultyMembers.find(
+                                          (f) =>
+                                            f.id ===
+                                            faculty.assignedProfId,
+                                        )?.name
+                                      }
+                                    </b>{" "}
+                                    from RFID <b>{faculty.rfid}</b>?
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>
+                                    Cancel
+                                  </AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() =>
+                                      handleAssignProf(
+                                        faculty.id,
+                                        faculty.assignedProfId,
+                                      )
+                                    }
+                                    className="bg-red-600 hover:bg-red-700 text-white"
+                                  >
+                                    Yes
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          ) : (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                handleRfidAssignClick(faculty);
+                              }}
+                            >
+                              <CreditCard className="w-4 h-4 mr-2" />
+                              Assign Prof
+                            </Button>
+                          )}
 
                           <AlertDialog
                             open={isAssignDialogOpen}

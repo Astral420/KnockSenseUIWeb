@@ -11,13 +11,13 @@ import {
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyADwTJ55RaBvjvpulAY7T7ORW2dnxZFNqQ",
-  authDomain: "knocksense-21180.firebaseapp.com",
-  databaseURL: "https://knocksense-21180-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "knocksense-21180",
-  storageBucket: "knocksense-21180.firebasestorage.app",
-  messagingSenderId: "567130767561",
-  appId: "1:567130767561:web:b07c2ece1c042f0b16cd18"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Initialize Firebase

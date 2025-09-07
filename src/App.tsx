@@ -34,7 +34,8 @@ import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
 import { useState, useEffect } from "react";
 
-import authService from './components/backend/auth/authService';
+import authService from './components/backend/auth/AuthService';
+import { rfidService, espWebSocket } from './components/backend/RFIDService';
 
 import {
   AlertDialog,
@@ -48,80 +49,7 @@ import {
   AlertDialogAction,
 } from "./components/ui/alert-dialog";
 
-const initialFacultyMembers = [
-  {
-    id: 1,
-    name: "Prof. Santos",
-    initials: "PS",
-    status: "Online",
-    lastSeen: "2 min ago",
-    color: "bg-blue-500",
-    isActive: true,
-    rfid: "22:0C:10:01",
-    timeIn: "08:30 AM",
-    timeOut: "05:00 PM",
-  },
-  {
-    id: 2,
-    name: "Prof. Cruz",
-    initials: "PC",
-    status: "Busy",
-    lastSeen: "15 min ago",
-    color: "bg-green-500",
-    isActive: true,
-    rfid: "A2:7A:B5:AB",
-    timeIn: "09:00 AM",
-    timeOut: "06:00 PM",
-  },
-  {
-    id: 3,
-    name: "Prof. Kim",
-    initials: "PK",
-    status: "Offline",
-    lastSeen: "1 hour ago",
-    color: "bg-purple-500",
-    isActive: false,
-    rfid: "21:10:10:11",
-    timeIn: "07:45 AM",
-    timeOut: "04:30 PM",
-  },
-  {
-    id: 4,
-    name: "Prof. Gonzales",
-    initials: "DG",
-    status: "Online",
-    lastSeen: "Active now",
-    color: "bg-orange-500",
-    isActive: true,
-    rfid: "10:00:03:10",
-    timeIn: "08:15 AM",
-    timeOut: "05:15 PM",
-  },
-  {
-    id: 5,
-    name: "Prof. Joe",
-    initials: "PJ",
-    status: "Busy",
-    lastSeen: "30 min ago",
-    color: "bg-red-500",
-    isActive: true,
-    rfid: "E3:45:C2:8F",
-    timeIn: "09:30 AM",
-    timeOut: "06:30 PM",
-  },
-  {
-    id: 6,
-    name: "Prof. Balbin",
-    initials: "PB",
-    status: "Online",
-    lastSeen: "Active now",
-    color: "bg-indigo-500",
-    isActive: true,
-    rfid: "7F:12:A4:D6",
-    timeIn: "08:00 AM",
-    timeOut: "05:45 PM",
-  },
-];
+const initialFacultyMembers = [] as any[];
 
 const appointmentHistory = [
   {
@@ -215,6 +143,10 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
+  const [rfidTags, setRfidTags] = useState([]);
+  const [selectedTagUid, setSelectedTagUid] = useState<string | null>(null);
+
+  const isTagActive = (tag: any) => tag?.status === 'active' || tag?.status === true || tag?.status === 'Active';
 
   useEffect(() => {
     const unsubscribe = authService.onAuthStateChange((user) => {
@@ -235,6 +167,28 @@ export default function App() {
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // RFID tag subscription
+  useEffect(() => {
+    const handleTags = (tags) => setRfidTags(tags);
+    rfidService.subscribeToRFIDTags(handleTags);
+    return () => rfidService.unsubscribeFromRFIDTags(handleTags);
+  }, []);
+
+  // ESP32 WebSocket connection and message handling
+  useEffect(() => {
+    // Optionally, replace with your ESP IP/port
+    // espWebSocket.connect('192.168.1.100', 81);
+    const handler = (msg) => {
+      // Handle messages as needed; already updates via Firebase when scan mode on
+      // console.log('ESP message:', msg);
+    };
+    espWebSocket.addMessageHandler(handler);
+    return () => {
+      espWebSocket.removeMessageHandler(handler);
+      // espWebSocket.disconnect(); // keep persistent connection if desired
+    };
   }, []);
 
   // computed inside the component (so it re-evaluates after state changes)
@@ -345,17 +299,7 @@ export default function App() {
     }
   };
 
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
+  
   const handleToggleRfidAccess = (facultyId) => {
     setFacultyMembers((prev) =>
       prev.map((faculty) =>
@@ -747,7 +691,12 @@ export default function App() {
         {/* Add RFID Scanner Popup */}
         <Dialog
           open={isAddRfidPopupOpen}
-          onOpenChange={setIsAddRfidPopupOpen}
+          onOpenChange={(open) => {
+            setIsAddRfidPopupOpen(open);
+            if (!open) {
+              espWebSocket.setScanMode(false);
+            }
+          }}
         >
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader className="text-center">
@@ -758,6 +707,9 @@ export default function App() {
                 </p>
               </div>
             </DialogHeader>
+            <div className="flex justify-center">
+              <Button variant="outline" onClick={() => setIsAddRfidPopupOpen(false)}>Close</Button>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -1188,11 +1140,7 @@ export default function App() {
                           Active RFID
                         </p>
                         <p className="text-2xl font-semibold">
-                          {
-                            facultyMembers.filter(
-                              (f) => f.isActive,
-                            ).length
-                          }
+                        {rfidTags.filter((t) => isTagActive(t)).length}
                         </p>
                       </div>
                     </div>
@@ -1210,11 +1158,7 @@ export default function App() {
                           Inactive RFID
                         </p>
                         <p className="text-2xl font-semibold">
-                          {
-                            facultyMembers.filter(
-                              (f) => !f.isActive,
-                            ).length
-                          }
+                          {rfidTags.filter((t) => !isTagActive(t)).length}
                         </p>
                       </div>
                     </div>
@@ -1278,63 +1222,50 @@ export default function App() {
                   <Button 
                     variant="default" 
                     size="sm"
-                    onClick={() => setIsAddRfidPopupOpen(true)}
+                    onClick={() => {
+                      setIsAddRfidPopupOpen(true);
+                      espWebSocket.setScanMode(true);
+                    }}
                   >
                     Add RFID
                   </Button>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {facultyMembers.map((faculty) => (
+                    {/* Live tags from Firebase */}
+                    
+                    {rfidTags.map((tag) => (
                       <div
-                        key={faculty.id}
+                        key={tag.uid}
                         className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <div className="flex items-center gap-4">
                           <div>
-                            {/* ✅ RFID number first */}
                             <p className="text-sm font-medium text-gray-900">
-                              RFID: {faculty.rfid}
+                              RFID: {tag.uid}
                             </p>
-                            {/* ✅ Professor name under RFID */}
-                            {faculty.assignedProfId ? (
-                              <p className="text-sm text-gray-500">
-                                Assigned:{" "}
-                                {
-                                  facultyMembers.find(
-                                    (f) =>
-                                      f.id ===
-                                      faculty.assignedProfId,
-                                  )?.name
-                                }
-                              </p>
-                            ) : (
-                              <p className="text-sm text-gray-400 italic">
-                                Not assigned
-                              </p>
-                            )}
+                            {tag.assignedTo?.facultyName ? (
+                              <p className="text-sm text-gray-500">Assigned: {tag.assignedTo.facultyName}</p>
+                            ) : (<p className="text-sm text-gray-400 italic">Not assigned</p>)}
                           </div>
                         </div>
                         <div className="flex items-center gap-4">
                           {/* Toggle Switch */}
                           <div className="flex flex-col items-center gap-2">
                             <Switch
-                              checked={faculty.isActive}
-                              onCheckedChange={() =>
-                                handleToggleRfidAccess(
-                                  faculty.id,
-                                )
-                              }
+                              checked={isTagActive(tag)}
+                              onCheckedChange={async () => {
+                                const next = isTagActive(tag) ? 'inactive' : 'active';
+                                await rfidService.updateRFIDStatus(tag.uid, next);
+                              }}
                             />
                             <span className="text-xs text-gray-600">
-                              {faculty.isActive
-                                ? "Active"
-                                : "Inactive"}
+                              {isTagActive(tag) ? "Active" : "Inactive"}
                             </span>
                           </div>
 
                           {/* Assign/Unassign Prof Button */}
-                          {faculty.assignedProfId ? (
+                          {tag.assignedTo?.facultyId ? (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -1352,17 +1283,7 @@ export default function App() {
                                     Are you sure?
                                   </AlertDialogTitle>
                                   <AlertDialogDescription>
-                                    Are you sure you want to unassign{" "}
-                                    <b>
-                                      {
-                                        facultyMembers.find(
-                                          (f) =>
-                                            f.id ===
-                                            faculty.assignedProfId,
-                                        )?.name
-                                      }
-                                    </b>{" "}
-                                    from RFID <b>{faculty.rfid}</b>?
+                                    Are you sure you want to unassign <b>{tag.assignedTo.facultyName}</b> from RFID <b>{tag.uid}</b>?
                                   </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
@@ -1370,12 +1291,9 @@ export default function App() {
                                     Cancel
                                   </AlertDialogCancel>
                                   <AlertDialogAction
-                                    onClick={() =>
-                                      handleAssignProf(
-                                        faculty.id,
-                                        faculty.assignedProfId,
-                                      )
-                                    }
+                                    onClick={async () => {
+                                      await rfidService.unassignRFID(tag.uid);
+                                    }}
                                     className="bg-red-600 hover:bg-red-700 text-white"
                                   >
                                     Yes
@@ -1388,7 +1306,8 @@ export default function App() {
                               variant="outline"
                               size="sm"
                               onClick={() => {
-                                handleRfidAssignClick(faculty);
+                                setSelectedTagUid(tag.uid);
+                                setIsAssignDialogOpen(true);
                               }}
                             >
                               <CreditCard className="w-4 h-4 mr-2" />
@@ -1406,13 +1325,7 @@ export default function App() {
                                   Assign Professor
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Choose a professor to assign
-                                  to RFID{" "}
-                                  <b>
-                                    {
-                                      selectedFacultyForRfid?.rfid
-                                    }
-                                  </b>
+                                  Choose a professor to assign to RFID <b>{selectedTagUid}</b>
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
 
@@ -1424,10 +1337,7 @@ export default function App() {
                                       variant="outline"
                                       className="w-full justify-start"
                                       onClick={() =>
-                                        handleAssignProf(
-                                          selectedFacultyForRfid.id,
-                                          prof.id,
-                                        )
+                                        rfidService.assignRFIDToFaculty(selectedTagUid!, prof.id, prof.name).then(() => setIsAssignDialogOpen(false))
                                       }
                                     >
                                       {prof.name}
@@ -1444,7 +1354,7 @@ export default function App() {
                             </AlertDialogContent>
                           </AlertDialog>
 
-                          {/* ✅ Delete RFID Button with confirmation */}
+                          {/* Delete RFID Button with confirmation */}
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
                               <Button
@@ -1462,24 +1372,7 @@ export default function App() {
                                   Are you sure?
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will permanently remove
-                                  RFID <b>{faculty.rfid}</b>
-                                  {faculty.assignedProfId ? (
-                                    <>
-                                      {" "}
-                                      assigned to{" "}
-                                      <b>
-                                        {
-                                          facultyMembers.find(
-                                            (f) =>
-                                              f.id ===
-                                              faculty.assignedProfId,
-                                          )?.name
-                                        }
-                                      </b>
-                                    </>
-                                  ) : null}
-                                  . You cannot undo this action.
+                                  This will permanently remove RFID <b>{tag.uid}</b>. You cannot undo this action.
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
 
@@ -1488,9 +1381,9 @@ export default function App() {
                                   Cancel
                                 </AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() =>
-                                    handleRemoveRfid(faculty.id)
-                                  }
+                                  onClick={async () => {
+                                    await rfidService.deleteRFIDTag(tag.uid);
+                                  }}
                                   className="bg-red-600 hover:bg-red-700 text-white"
                                 >
                                   Delete

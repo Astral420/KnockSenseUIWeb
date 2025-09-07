@@ -75,9 +75,21 @@ export const authService = {
   },
 
   // Logout
-  logout: async () => {
+  logout: async (userType = null) => {
     try {
+      const currentUser = auth.currentUser;
       await signOut(auth);
+      
+      // Only redirect to Microsoft logout if user actually used Microsoft OAuth
+      if (userType === 'student' || (currentUser && currentUser.providerData.some(p => p.providerId === 'microsoft.com'))) {
+        // Optional: Clear Microsoft session silently
+        setTimeout(() => {
+          const tenant = '3663e35d-c7bc-4b90-90e0-a67a1d53bb77'; 
+          const postLogout = encodeURIComponent(window.location.origin);
+          window.location.href = `https://login.microsoftonline.com/${tenant}/oauth2/v2.0/logout?post_logout_redirect_uri=${postLogout}`;
+        }, 100);
+      }
+      
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };

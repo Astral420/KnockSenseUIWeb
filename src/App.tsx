@@ -250,20 +250,6 @@ export default function App() {
     } catch (error) {
       setLoginError('Failed to login with Microsoft');
     }
-  const handleOffice365Login = async () => {
-    setLoginError('');
-    try {
-      const result = await authService.loginWithMicrosoft();
-      if (result.success) {
-        setStudentLoginOpen(false);
-        // Handle successful student login
-        console.log('Student logged in:', result.user);
-      } else {
-        setLoginError(result.error);
-      }
-    } catch (error) {
-      setLoginError('Failed to login with Microsoft');
-    }
   };
 
   const handleMeetingRequest = (facultyName) => {
@@ -299,35 +285,9 @@ export default function App() {
       }
     } catch (error) {
       setLoginError('Login failed');
-  const handleAdminLogin = async () => {
-    if (!adminEmail || !adminPassword) return;
-    
-    setLoginError('');
-    try {
-      const result = await authService.loginAdmin(adminEmail, adminPassword);
-      if (result.success) {
-        setAdminLoginOpen(false);
-        setAdminEmail("");
-        setAdminPassword("");
-       
-        // isAdminLoggedIn will be set by the auth state observer
-      } else {
-        setLoginError(result.error);
-      }
-    } catch (error) {
-      setLoginError('Login failed');
     }
   };
 
-  const handleLogout = async () => {
-    try {
-      await authService.logout();
-      setIsAdminLoggedIn(false);
-      setCurrentPage("dashboard");
-      // State will be updated by the auth observer
-    } catch (error) {
-      console.error('Logout failed:', error);
-    }
   const handleLogout = async () => {
     try {
       await authService.logout();
@@ -528,28 +488,12 @@ export default function App() {
                   variant="outline"
                   size="sm"
                   onClick={handleLogout}
-                  onClick={handleLogout}
                 >
                   <LogOut className="w-4 h-4 mr-2" />
                   Logout
                 </Button>
               )}
-              {!isAdminLoggedIn && user && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-700 font-medium">
-                    {user.displayName || user.email}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLogout}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Logout
-                  </Button>
-                </div>
-              )}
-              {!isAdminLoggedIn && !user && (
+              {!isAdminLoggedIn && (
                 <>
                   <Dialog
                     open={studentLoginOpen}
@@ -927,8 +871,6 @@ export default function App() {
                                   faculty.name,
                                 )
                               }
-                              disabled={!user}
-                              className={!user ? "opacity-50 cursor-not-allowed" : ""}
                             >
                               Req. Meeting
                             </Button>
@@ -1529,4 +1471,3 @@ export default function App() {
     </div>
   );
 }
-    

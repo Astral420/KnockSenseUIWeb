@@ -1,5 +1,6 @@
 
   import { defineConfig } from 'vite';
+  import viteCompression from 'vite-plugin-compression';
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 

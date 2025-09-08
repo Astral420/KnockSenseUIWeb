@@ -1,4 +1,3 @@
-// firebaseRFIDService.js
 import { getDatabase, ref, onValue, set, push, serverTimestamp } from 'firebase/database';
 import { auth } from './auth/AuthService';
 

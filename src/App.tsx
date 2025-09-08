@@ -493,7 +493,22 @@ export default function App() {
                   Logout
                 </Button>
               )}
-              {!isAdminLoggedIn && (
+              {!isAdminLoggedIn && user && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 font-medium">
+                    {user.displayName || user.email}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
+                </div>
+              )}
+              {!isAdminLoggedIn && !user && (
                 <>
                   <Dialog
                     open={studentLoginOpen}
@@ -524,7 +539,7 @@ export default function App() {
                       </div>
                     </DialogContent>
                   </Dialog>
-
+                  
                   <Dialog
                     open={adminLoginOpen}
                     onOpenChange={setAdminLoginOpen}

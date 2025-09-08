@@ -1,11 +1,15 @@
 
   import { defineConfig } from 'vite';
-  import viteCompression from 'vite-plugin-compression';
+  import { compression } from 'vite-plugin-compression2'
   import react from '@vitejs/plugin-react-swc';
   import path from 'path';
 
   export default defineConfig({
-    plugins: [react()],
+    plugins: [react()
+      , compression({
+        algorithms: ['gzip']
+      })
+    ],
     resolve: {
       extensions: ['.js', '.jsx', '.ts', '.tsx', '.json'],
       alias: {

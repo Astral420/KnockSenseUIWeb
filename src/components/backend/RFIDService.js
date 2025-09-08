@@ -1,13 +1,47 @@
 import { getDatabase, ref, onValue, set, push, serverTimestamp } from 'firebase/database';
 import { auth } from './auth/AuthService';
 
-const database = getDatabase();
+// Get database instance - will be initialized when Firebase app is ready
+let database = null;
+
+const getDatabaseInstance = () => {
+  if (!database) {
+    try {
+      database = getDatabase();
+    } catch (error) {
+      console.error('Failed to initialize Firebase database:', error);
+      throw error;
+    }
+  }
+  return database;
+};
 
 export class RFIDService {
   constructor() {
     this.rfidTags = [];
     this.listeners = new Set();
     this.isListening = false;
+    this.retryCount = 0;
+    this.maxRetries = 3;
+    this.retryDelay = 1000; // 1 second
+  }
+
+  // Retry mechanism for database operations
+  async retryOperation(operation, context = 'operation') {
+    try {
+      return await operation();
+    } catch (error) {
+      if (this.retryCount < this.maxRetries) {
+        this.retryCount++;
+        console.warn(`${context} failed, retrying in ${this.retryDelay}ms (attempt ${this.retryCount}/${this.maxRetries}):`, error);
+        
+        await new Promise(resolve => setTimeout(resolve, this.retryDelay));
+        return this.retryOperation(operation, context);
+      } else {
+        console.error(`${context} failed after ${this.maxRetries} retries:`, error);
+        throw error;
+      }
+    }
   }
 
   // Subscribe to RFID tags changes
@@ -15,28 +49,42 @@ export class RFIDService {
     this.listeners.add(callback);
     
     if (!this.isListening) {
-      const rfidTagsRef = ref(database, 'rfid_tags');
-      
-      onValue(rfidTagsRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          // Convert Firebase object to array format
-          this.rfidTags = Object.keys(data).map(uid => ({
-            uid: uid,
-            status: data[uid].status || 'inactive',
-            createdAt: data[uid].createdAt || null,
-            assignedTo: data[uid].assignedTo || null, // Future assignment support
-            lastAccess: data[uid].lastAccess || null
-          }));
-        } else {
-          this.rfidTags = [];
-        }
+      this.retryOperation(async () => {
+        const database = getDatabaseInstance();
+        const rfidTagsRef = ref(database, 'rfid_tags');
+        
+        onValue(rfidTagsRef, (snapshot) => {
+          const data = snapshot.val();
+          if (data) {
+            // Convert Firebase object to array format
+            this.rfidTags = Object.keys(data).map(uid => ({
+              uid: uid,
+              status: data[uid].status || 'inactive',
+              createdAt: data[uid].createdAt || null,
+              assignedTo: data[uid].assignedTo || null, // Future assignment support
+              lastAccess: data[uid].lastAccess || null
+            }));
+          } else {
+            this.rfidTags = [];
+          }
 
-        // Notify all subscribers
-        this.listeners.forEach(callback => callback(this.rfidTags));
+          // Reset retry count on successful operation
+          this.retryCount = 0;
+          
+          // Notify all subscribers
+          this.listeners.forEach(callback => callback(this.rfidTags));
+        }, (error) => {
+          console.error('Error listening to RFID tags:', error);
+          // Notify subscribers with empty array on error
+          this.listeners.forEach(callback => callback([]));
+        });
+        
+        this.isListening = true;
+      }, 'RFID subscription').catch(error => {
+        console.error('Failed to subscribe to RFID tags after retries:', error);
+        // Notify subscribers with empty array on error
+        this.listeners.forEach(callback => callback([]));
       });
-      
-      this.isListening = true;
     } else {
       // If already listening, immediately call callback with current data
       callback(this.rfidTags);
@@ -51,8 +99,11 @@ export class RFIDService {
   // Update RFID tag status (active/inactive)
   async updateRFIDStatus(uid, status) {
     try {
-      const rfidRef = ref(database, `rfid_tags/${uid}/status`);
-      await set(rfidRef, status);
+      await this.retryOperation(async () => {
+        const database = getDatabaseInstance();
+        const rfidRef = ref(database, `rfid_tags/${uid}/status`);
+        await set(rfidRef, status);
+      }, 'Update RFID status');
       return { success: true };
     } catch (error) {
       console.error('Error updating RFID status:', error);
@@ -63,15 +114,18 @@ export class RFIDService {
   // Assign RFID to faculty member
   async assignRFIDToFaculty(uid, facultyId, facultyName) {
     try {
-      const updates = {};
-      updates[`rfid_tags/${uid}/assignedTo`] = {
-        facultyId: facultyId,
-        facultyName: facultyName,
-        assignedAt: serverTimestamp()
-      };
-      
-      const dbRef = ref(database);
-      await set(dbRef, updates);
+      await this.retryOperation(async () => {
+        const database = getDatabaseInstance();
+        const updates = {};
+        updates[`rfid_tags/${uid}/assignedTo`] = {
+          facultyId: facultyId,
+          facultyName: facultyName,
+          assignedAt: serverTimestamp()
+        };
+        
+        const dbRef = ref(database);
+        await set(dbRef, updates);
+      }, 'Assign RFID to faculty');
       return { success: true };
     } catch (error) {
       console.error('Error assigning RFID:', error);
@@ -82,8 +136,11 @@ export class RFIDService {
   // Unassign RFID from faculty member
   async unassignRFID(uid) {
     try {
-      const assignedRef = ref(database, `rfid_tags/${uid}/assignedTo`);
-      await set(assignedRef, null);
+      await this.retryOperation(async () => {
+        const database = getDatabaseInstance();
+        const assignedRef = ref(database, `rfid_tags/${uid}/assignedTo`);
+        await set(assignedRef, null);
+      }, 'Unassign RFID');
       return { success: true };
     } catch (error) {
       console.error('Error unassigning RFID:', error);
@@ -94,8 +151,11 @@ export class RFIDService {
   // Delete RFID tag
   async deleteRFIDTag(uid) {
     try {
-      const rfidRef = ref(database, `rfid_tags/${uid}`);
-      await set(rfidRef, null);
+      await this.retryOperation(async () => {
+        const database = getDatabaseInstance();
+        const rfidRef = ref(database, `rfid_tags/${uid}`);
+        await set(rfidRef, null);
+      }, 'Delete RFID tag');
       return { success: true };
     } catch (error) {
       console.error('Error deleting RFID:', error);
@@ -105,22 +165,31 @@ export class RFIDService {
 
   // Get access logs
   subscribeToAccessLogs(callback, limit = 50) {
-    const logsRef = ref(database, 'access_logs');
-    
-    onValue(logsRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        // Convert to array and sort by timestamp (most recent first)
-        const logs = Object.keys(data).map(key => ({
-          id: key,
-          ...data[key]
-        })).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, limit);
-        
-        callback(logs);
-      } else {
+    try {
+      const database = getDatabaseInstance();
+      const logsRef = ref(database, 'access_logs');
+      
+      onValue(logsRef, (snapshot) => {
+        const data = snapshot.val();
+        if (data) {
+          // Convert to array and sort by timestamp (most recent first)
+          const logs = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+          })).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0)).slice(0, limit);
+          
+          callback(logs);
+        } else {
+          callback([]);
+        }
+      }, (error) => {
+        console.error('Error listening to access logs:', error);
         callback([]);
-      }
-    });
+      });
+    } catch (error) {
+      console.error('Failed to subscribe to access logs:', error);
+      callback([]);
+    }
   }
 
   // Get current RFID tags (synchronous)

@@ -144,6 +144,8 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [rfidTags, setRfidTags] = useState([]);
+  const [rfidLoading, setRfidLoading] = useState(true);
+  const [rfidError, setRfidError] = useState('');
   const [selectedTagUid, setSelectedTagUid] = useState<string | null>(null);
 
   const isTagActive = (tag: any) => tag?.status === 'active' || tag?.status === true || tag?.status === 'Active';
@@ -169,12 +171,33 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // RFID tag subscription
+  // RFID tag subscription - only start after auth is loaded and user is admin
   useEffect(() => {
-    const handleTags = (tags) => setRfidTags(tags);
-    rfidService.subscribeToRFIDTags(handleTags);
-    return () => rfidService.unsubscribeFromRFIDTags(handleTags);
-  }, []);
+    if (!authLoading && isAdminLoggedIn) {
+      setRfidLoading(true);
+      setRfidError('');
+      
+      const handleTags = (tags) => {
+        setRfidTags(tags);
+        setRfidLoading(false);
+        setRfidError('');
+      };
+      
+      const handleError = (error) => {
+        console.error('RFID subscription error:', error);
+        setRfidError('Failed to load RFID data. Please refresh the page.');
+        setRfidLoading(false);
+      };
+      
+      try {
+        rfidService.subscribeToRFIDTags(handleTags);
+      } catch (error) {
+        handleError(error);
+      }
+      
+      return () => rfidService.unsubscribeFromRFIDTags(handleTags);
+    }
+  }, [authLoading, isAdminLoggedIn]);
 
   // ESP32 WebSocket connection and message handling
   useEffect(() => {
@@ -722,9 +745,7 @@ export default function App() {
                 </p>
               </div>
             </DialogHeader>
-            <div className="flex justify-center">
-              <Button variant="outline" onClick={() => setIsAddRfidPopupOpen(false)}>Close</Button>
-            </div>
+           
           </DialogContent>
         </Dialog>
 
@@ -1247,9 +1268,42 @@ export default function App() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {/* Live tags from Firebase */}
+                    {/* Loading and Error States */}
+                    {rfidLoading && (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                          <span>Loading RFID data...</span>
+                        </div>
+                      </div>
+                    )}
                     
-                    {rfidTags.map((tag) => (
+                    {rfidError && (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="text-center">
+                          <p className="text-red-600 mb-2">{rfidError}</p>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => window.location.reload()}
+                          >
+                            Refresh Page
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Live tags from Firebase */}
+                    {!rfidLoading && !rfidError && rfidTags.length === 0 && (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="text-center text-gray-500">
+                          <p>No RFID tags found.</p>
+                          <p className="text-sm">Add your first RFID tag to get started.</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {!rfidLoading && !rfidError && rfidTags.map((tag) => (
                       <div
                         key={tag.uid}
                         className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"

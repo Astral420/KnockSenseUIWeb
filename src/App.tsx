@@ -938,6 +938,8 @@ export default function App() {
                             <Button
                               variant="outline"
                               size="sm"
+                              disabled={!user}
+                              title={!user ? 'Login required to request a meeting' : undefined}
                               onClick={() =>
                                 handleMeetingRequest(
                                   faculty.name,

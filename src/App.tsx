@@ -21,7 +21,7 @@ import {
   CardHeader,
   CardTitle,
 } from "./components/ui/card";
-import { Avatar, AvatarFallback } from "./components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import {
   Dialog,
   DialogContent,
@@ -33,9 +33,10 @@ import {
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
 import { useState, useEffect } from "react";
+import { teacherService } from './components/backend/TeacherService';
 
 import authService from './components/backend/auth/AuthService';
-import { rfidService, espWebSocket } from './components/backend/RFIDService';
+import { rfidService } from './components/backend/RFIDService';
 
 import {
   AlertDialog,
@@ -49,7 +50,16 @@ import {
   AlertDialogAction,
 } from "./components/ui/alert-dialog";
 
-const initialFacultyMembers = [] as any[];
+// Listening to Firebase `teacher` node to hydrate faculty members
+// Expected teacher shape:
+// {
+//   displayName: string,
+//   email: string,
+//   teacherID: string,
+//   rfid_uid?: string,
+//   active_status?: 'online' | 'offline',
+//   photoUrl?: string
+// }
 
 const appointmentHistory = [
   {
@@ -123,9 +133,9 @@ export default function App() {
   const [adminEmail, setAdminEmail] = useState("");
   const [adminPassword, setAdminPassword] = useState("");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
-  const [facultyMembers, setFacultyMembers] = useState(
-    initialFacultyMembers,
-  );
+  const [facultyMembers, setFacultyMembers] = useState<any[]>([]);
+  const [facultyLoading, setFacultyLoading] = useState<boolean>(true);
+  const [facultyError, setFacultyError] = useState<string>("");
 
   const [newFacultyName, setNewFacultyName] = useState("");
   const [newRfidId, setNewRfidId] = useState("");
@@ -171,6 +181,30 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Subscribe to teachers via service — resubscribe on auth changes
+  useEffect(() => {
+    if (authLoading) return;
+    setFacultyLoading(true);
+    setFacultyError("");
+    const handle = (teachers: any[]) => {
+      setFacultyMembers(teachers);
+      setFacultyLoading(false);
+    };
+    const handleError = (err?: any) => {
+      const code = err?.code || err?.name || '';
+      // If rules deny when logged out, don't show hard error — just show empty list
+      if (String(code).toLowerCase().includes('permission')) {
+        setFacultyMembers([]);
+        setFacultyLoading(false);
+        return;
+      }
+      setFacultyError('Failed to load faculty data.');
+      setFacultyLoading(false);
+    };
+    teacherService.subscribeToTeachers(handle, handleError);
+    return () => teacherService.unsubscribeFromTeachers(handle);
+  }, [authLoading, user?.uid]);
+
   // RFID tag subscription - only start after auth is loaded and user is admin
   useEffect(() => {
     if (!authLoading && isAdminLoggedIn) {
@@ -190,7 +224,7 @@ export default function App() {
       };
       
       try {
-        rfidService.subscribeToRFIDTags(handleTags);
+        rfidService.subscribeToRFIDTags(handleTags, handleError);
       } catch (error) {
         handleError(error);
       }
@@ -199,20 +233,20 @@ export default function App() {
     }
   }, [authLoading, isAdminLoggedIn]);
 
-  // ESP32 WebSocket connection and message handling
-  useEffect(() => {
-    // Optionally, replace with your ESP IP/port
-    // espWebSocket.connect('192.168.1.100', 81);
-    const handler = (msg) => {
-      // Handle messages as needed; already updates via Firebase when scan mode on
-      // console.log('ESP message:', msg);
-    };
-    espWebSocket.addMessageHandler(handler);
-    return () => {
-      espWebSocket.removeMessageHandler(handler);
-      // espWebSocket.disconnect(); // keep persistent connection if desired
-    };
-  }, []);
+  // // ESP32 WebSocket connection and message handling
+  // useEffect(() => {
+  //   // Optionally, replace with your ESP IP/port
+  //   // espWebSocket.connect('192.168.1.100', 81);
+  //   const handler = (msg) => {
+  //     // Handle messages as needed; already updates via Firebase when scan mode on
+  //     // console.log('ESP message:', msg);
+  //   };
+  //   espWebSocket.addMessageHandler(handler);
+  //   return () => {
+  //     espWebSocket.removeMessageHandler(handler);
+  //     // espWebSocket.disconnect(); // keep persistent connection if desired
+  //   };
+  // }, []);
 
   // computed inside the component (so it re-evaluates after state changes)
   const availableProfessors = facultyMembers.filter((prof) => {
@@ -732,7 +766,7 @@ export default function App() {
           onOpenChange={(open) => {
             setIsAddRfidPopupOpen(open);
             if (!open) {
-              espWebSocket.setScanMode(false);
+              //espWebSocket.setScanMode(false);
             }
           }}
         >
@@ -780,11 +814,7 @@ export default function App() {
                           Online Faculty
                         </p>
                         <p className="text-2xl font-semibold">
-                          {
-                            facultyMembers.filter(
-                              (f) => f.status === "Online",
-                            ).length
-                          }
+                          {facultyMembers.filter((f) => f.status === "Online").length}
                         </p>
                       </div>
                     </div>
@@ -799,12 +829,12 @@ export default function App() {
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">
-                          In Office Hours
+                          Busy Faculty
                         </p>
                         <p className="text-2xl font-semibold">
                           {
                             facultyMembers.filter(
-                              (f) => f.isActive,
+                              (f) => f.status === "Busy",
                             ).length
                           }
                         </p>
@@ -858,17 +888,26 @@ export default function App() {
                     <CardTitle>Faculty Members</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {facultyMembers.map((faculty) => (
+                    {/* Faculty loading/error */}
+                    {facultyLoading && (
+                      <div className="flex items-center justify-center py-8 text-gray-600">Loading faculty...</div>
+                    )}
+                    {facultyError && (
+                      <div className="flex items-center justify-center py-8 text-red-600">{facultyError}</div>
+                    )}
+                    {!facultyLoading && !facultyError && (
+                      <div className="space-y-4">
+                        {facultyMembers.map((faculty) => (
                         <div
                           key={faculty.id}
                           className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                         >
                           <div className="flex items-center gap-4">
                             <Avatar>
-                              <AvatarFallback
-                                className={`${faculty.color} text-white`}
-                              >
+                              {faculty.photoUrl ? (
+                                <AvatarImage src={faculty.photoUrl} alt={faculty.name} />
+                              ) : null}
+                              <AvatarFallback className={`${faculty.color} text-white`}>
                                 {faculty.initials}
                               </AvatarFallback>
                             </Avatar>
@@ -885,19 +924,16 @@ export default function App() {
                                   className={`w-2 h-2 rounded-full ${
                                     faculty.status === "Online"
                                       ? "bg-green-500"
-                                      : faculty.status ===
-                                          "Busy"
-                                        ? "bg-yellow-500"
-                                        : "bg-gray-400"
+                                      : faculty.status === "Busy"
+                                      ? "bg-yellow-500"
+                                      : "bg-gray-400"
                                   }`}
                                 ></div>
                                 <span className="text-sm font-medium">
                                   {faculty.status}
                                 </span>
                               </div>
-                              <p className="text-xs text-gray-500">
-                                {faculty.lastSeen}
-                              </p>
+                              <p className="text-xs text-gray-500">Pending</p>
                             </div>
                             <Button
                               variant="outline"
@@ -912,8 +948,9 @@ export default function App() {
                             </Button>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
 
@@ -1074,17 +1111,26 @@ export default function App() {
                   <CardTitle>Faculty Management</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {facultyMembers.map((faculty) => (
+                  {/* Faculty loading/error */}
+                  {facultyLoading && (
+                    <div className="flex items-center justify-center py-8 text-gray-600">Loading faculty...</div>
+                  )}
+                  {facultyError && (
+                    <div className="flex items-center justify-center py-8 text-red-600">{facultyError}</div>
+                  )}
+                  {!facultyLoading && !facultyError && (
+                    <div className="space-y-4">
+                      {facultyMembers.map((faculty) => (
                       <div
                         key={faculty.id}
                         className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
                       >
                         <div className="flex items-center gap-4">
                           <Avatar>
-                            <AvatarFallback
-                              className={`${faculty.color} text-white`}
-                            >
+                            {faculty.photoUrl ? (
+                              <AvatarImage src={faculty.photoUrl} alt={faculty.name} />
+                            ) : null}
+                            <AvatarFallback className={`${faculty.color} text-white`}>
                               {faculty.initials}
                             </AvatarFallback>
                           </Avatar>
@@ -1098,17 +1144,13 @@ export default function App() {
                               {" "}
                               First Time In
                             </p>
-                            <p className="text-sm text-gray-500">
-                              {faculty.timeIn}
-                            </p>
+                            <p className="text-sm text-gray-500">{faculty.timeIn}</p>
                           </div>
                           <div className="text-center">
                             <p className="text-sm font-medium text-gray-900">
                               Last Time Out
                             </p>
-                            <p className="text-sm text-gray-500">
-                              {faculty.timeOut}
-                            </p>
+                            <p className="text-sm text-gray-500">{faculty.timeOut}</p>
                           </div>
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
@@ -1153,8 +1195,9 @@ export default function App() {
                           </AlertDialog>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </>
@@ -1260,7 +1303,7 @@ export default function App() {
                     size="sm"
                     onClick={() => {
                       setIsAddRfidPopupOpen(true);
-                      espWebSocket.setScanMode(true);
+                      //espWebSocket.setScanMode(true);
                     }}
                   >
                     Add RFID
@@ -1335,54 +1378,54 @@ export default function App() {
 
                           {/* Assign/Unassign Prof Button */}
                           {tag.assignedTo?.facultyId ? (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                              >
+                                <CreditCard className="w-4 h-4 mr-2" />
+                                Unassign Prof
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Are you sure?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Are you sure you want to unassign <b>{tag.assignedTo.facultyName}</b> from RFID <b>{tag.uid}</b>?
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>
+                                  Cancel
+                                </AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={async () => {
+                                    await rfidService.unassignRFID(tag.uid);
+                                  }}
+                                  className="bg-red-600 hover:bg-red-700 text-white"
                                 >
-                                  <CreditCard className="w-4 h-4 mr-2" />
-                                  Unassign Prof
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>
-                                    Are you sure?
-                                  </AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    Are you sure you want to unassign <b>{tag.assignedTo.facultyName}</b> from RFID <b>{tag.uid}</b>?
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>
-                                    Cancel
-                                  </AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={async () => {
-                                      await rfidService.unassignRFID(tag.uid);
-                                    }}
-                                    className="bg-red-600 hover:bg-red-700 text-white"
-                                  >
-                                    Yes
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedTagUid(tag.uid);
-                                setIsAssignDialogOpen(true);
-                              }}
-                            >
-                              <CreditCard className="w-4 h-4 mr-2" />
-                              Assign Prof
-                            </Button>
-                          )}
+                                  Yes
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedTagUid(tag.uid);
+                              setIsAssignDialogOpen(true);
+                            }}
+                          >
+                            <CreditCard className="w-4 h-4 mr-2" />
+                            Assign Prof
+                          </Button>
+                        )}
 
                           <AlertDialog
                             open={isAssignDialogOpen}

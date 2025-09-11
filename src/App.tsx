@@ -37,6 +37,7 @@ import { teacherService } from './components/backend/TeacherService';
 
 import authService from './components/backend/auth/AuthService';
 import { rfidService } from './components/backend/RFIDService';
+import { espWebSocket } from './components/backend/WebSocketService';
 
 import {
   AlertDialog,
@@ -158,6 +159,8 @@ export default function App() {
   const [rfidError, setRfidError] = useState('');
   const [selectedTagUid, setSelectedTagUid] = useState<string | null>(null);
 
+  const [isFailsafeMode, setIsFailsafeMode] = useState(false);
+
   const isTagActive = (tag: any) => tag?.status === 'active' || tag?.status === true || tag?.status === 'Active';
 
   useEffect(() => {
@@ -233,20 +236,71 @@ export default function App() {
     }
   }, [authLoading, isAdminLoggedIn]);
 
-  // // ESP32 WebSocket connection and message handling
-  // useEffect(() => {
-  //   // Optionally, replace with your ESP IP/port
-  //   // espWebSocket.connect('192.168.1.100', 81);
-  //   const handler = (msg) => {
-  //     // Handle messages as needed; already updates via Firebase when scan mode on
-  //     // console.log('ESP message:', msg);
-  //   };
-  //   espWebSocket.addMessageHandler(handler);
-  //   return () => {
-  //     espWebSocket.removeMessageHandler(handler);
-  //     // espWebSocket.disconnect(); // keep persistent connection if desired
-  //   };
-  // }, []);
+  // ESP32 WebSocket connection and message handling
+  useEffect(() => {
+    // Connect to ESP32 WebSocket
+    espWebSocket.connect(window.location.hostname, 81);
+    const handler = (msg) => {
+      console.log('ESP message:', msg);
+    };
+    espWebSocket.addMessageHandler(handler);
+    return () => {
+      espWebSocket.removeMessageHandler(handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (msg) => {
+      console.log('ESP message:', msg);
+  
+      // ✅ ADD THIS LOGIC
+      // Check for system status and enable failsafe mode if WiFi is disconnected.
+      if (msg.type === 'system_status') {
+        if (msg.wifi_connected === false) {
+          console.log('Device is offline. Enabling failsafe recovery mode.');
+          setIsFailsafeMode(true);
+        } else {
+          // If it ever reconnects, disable failsafe mode.
+          setIsFailsafeMode(false);
+        }
+      }
+     
+    };
+  
+    espWebSocket.addMessageHandler(handler);
+    
+    // Also request the status on initial load
+    espWebSocket.connect(window.location.hostname, 81);
+    espWebSocket.requestSystemStatus();
+  
+    return () => {
+      espWebSocket.removeMessageHandler(handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleNewRfidMessage = (msg) => {
+      if (msg.type === 'new_rfid_scanned' && msg.uid) {
+        console.log('New RFID scanned and added by Arduino:', msg.uid);
+        
+        // Show success feedback and close dialog
+        // You could show a toast notification here if you have one
+        alert(`RFID ${msg.uid} added successfully!`);
+        
+        // Close the dialog since the RFID was successfully added
+        setIsAddRfidPopupOpen(false);
+        espWebSocket.setAddRfidDialogState(false);
+      }
+    };
+    
+    espWebSocket.addMessageHandler(handleNewRfidMessage);
+    return () => {
+      espWebSocket.removeMessageHandler(handleNewRfidMessage);
+    };
+  }, []);
+
+
+
 
   // computed inside the component (so it re-evaluates after state changes)
   const availableProfessors = facultyMembers.filter((prof) => {
@@ -273,10 +327,8 @@ export default function App() {
   };
 
   const handleSaveWifiConfig = () => {
-    alert(
-      `WiFi Config Saved!\nSSID: ${ssid}\nPassword: ${wifiPassword}`,
-    );
-    // Later: send this to your ESP32 via API
+    espWebSocket.sendWifiConfig(ssid, wifiPassword);
+    alert(`WiFi Config Saved!\nSSID: ${ssid}\nPassword: ${wifiPassword}`);
   };
 
   const handleCheckConnection = async () => {
@@ -490,7 +542,7 @@ export default function App() {
             </button>
 
             {/* Show only if Admin is logged in */}
-            {isAdminLoggedIn && (
+            {(isAdminLoggedIn || isFailsafeMode) && (
               <button
                 onClick={() => setCurrentPage("rfid")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
@@ -765,8 +817,11 @@ export default function App() {
           open={isAddRfidPopupOpen}
           onOpenChange={(open) => {
             setIsAddRfidPopupOpen(open);
+            // Properly sync dialog state with WebSocket service
+            espWebSocket.setAddRfidDialogState(open);
             if (!open) {
-              //espWebSocket.setScanMode(false);
+              // Ensure scan mode is disabled when dialog closes
+              espWebSocket.setScanMode(false);
             }
           }}
         >
@@ -779,7 +834,7 @@ export default function App() {
                 </p>
               </div>
             </DialogHeader>
-           
+          
           </DialogContent>
         </Dialog>
 
@@ -1305,11 +1360,19 @@ export default function App() {
                     size="sm"
                     onClick={() => {
                       setIsAddRfidPopupOpen(true);
-                      //espWebSocket.setScanMode(true);
+                      // Set dialog state first, then enable scan mode
+                      espWebSocket.setAddRfidDialogState(true);
+                      espWebSocket.setScanMode(true);
                     }}
                   >
                     Add RFID
                   </Button>
+
+                   
+
+
+
+
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -1514,7 +1577,7 @@ export default function App() {
             </>
           )}
           {/* === Admin Hardware Settings (only for admin when currentPage === "hardware") === */}
-          {isAdminLoggedIn && currentPage === "hardware" && (
+          {(isAdminLoggedIn || isFailsafeMode) && currentPage === "hardware" && (
             <>
               <Card>
                 <CardHeader>

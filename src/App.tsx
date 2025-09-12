@@ -283,7 +283,7 @@ export default function App() {
 
   useEffect(() => {
     const handleNewRfidMessage = (msg) => {
-      if (msg.type === 'new_rfid_scanned' && msg.uid) {
+      if (msg.type === 'new_rfid_scanned' && msg.uid && !msg.error) {  
         console.log('New RFID scanned and added by Arduino:', msg.uid);
         
         // Show success feedback and close dialog
@@ -294,7 +294,7 @@ export default function App() {
         espWebSocket.setAddRfidDialogState(false);
       }
     };
-    
+
     const handleRfidErrorMessage = (msg) => {
       if (msg.type === 'rfid_error') {
         console.log('RFID error received:', msg);

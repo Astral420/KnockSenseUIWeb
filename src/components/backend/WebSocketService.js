@@ -55,6 +55,13 @@ class WebSocketService {
               }
               break;
               
+            case 'rfid_error':
+              // Handle RFID errors (like duplicate UID)
+              if (this.scanMode && this.isAddRfidDialogOpen) {
+                this.handleRfidError(data);
+              }
+              break;
+              
             case 'wifi_status':
               this.handleWifiStatus(data);
               break;
@@ -193,6 +200,16 @@ class WebSocketService {
     this.notifyHandlers({
       type: 'new_rfid_scanned',
       uid: uid
+    });
+  }
+
+  handleRfidError(errorData) {
+    console.log('RFID error received:', errorData);
+    this.notifyHandlers({
+      type: 'rfid_error',
+      error: errorData.error,
+      uid: errorData.uid,
+      message: errorData.message
     });
   }
 

@@ -38,6 +38,8 @@ import { teacherService } from './components/backend/TeacherService';
 import authService from './components/backend/auth/AuthService';
 import { rfidService } from './components/backend/RFIDService';
 import { espWebSocket } from './components/backend/WebSocketService';
+import { toast } from "sonner";
+import { Toaster } from "./components/ui/sonner";
 
 import {
   AlertDialog,
@@ -154,6 +156,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
+  const [isStudentLoginLoading, setIsStudentLoginLoading] = useState(false);
   const [rfidTags, setRfidTags] = useState([]);
   const [rfidLoading, setRfidLoading] = useState(true);
   const [rfidError, setRfidError] = useState('');
@@ -284,8 +287,7 @@ export default function App() {
         console.log('New RFID scanned and added by Arduino:', msg.uid);
         
         // Show success feedback and close dialog
-        // You could show a toast notification here if you have one
-        alert(`RFID ${msg.uid} added successfully!`);
+        toast.success(`RFID ${msg.uid} added successfully!`);
         
         // Close the dialog since the RFID was successfully added
         setIsAddRfidPopupOpen(false);
@@ -293,9 +295,28 @@ export default function App() {
       }
     };
     
+    const handleRfidErrorMessage = (msg) => {
+      if (msg.type === 'rfid_error') {
+        console.log('RFID error received:', msg);
+        
+        // Show error feedback
+        if (msg.error === 'duplicate') {
+          toast.error(`RFID ${msg.uid} already exists in the database!`);
+        } else {
+          toast.error(`RFID Error: ${msg.message || 'Unknown error occurred'}`);
+        }
+        
+        // Keep dialog open so user can try again
+        // Don't close the dialog on error
+      }
+    };
+    
     espWebSocket.addMessageHandler(handleNewRfidMessage);
+    espWebSocket.addMessageHandler(handleRfidErrorMessage);
+    
     return () => {
       espWebSocket.removeMessageHandler(handleNewRfidMessage);
+      espWebSocket.removeMessageHandler(handleRfidErrorMessage);
     };
   }, []);
 
@@ -347,17 +368,37 @@ export default function App() {
 
   const handleOffice365Login = async () => {
     setLoginError('');
+    setIsStudentLoginLoading(true);
+    
     try {
       const result = await authService.loginWithMicrosoft();
       if (result.success) {
         setStudentLoginOpen(false);
-        // Handle successful student login
+        setLoginError(''); // Clear any previous errors
+        toast.success(`Welcome ${result.user.displayName || result.user.email}!`);
         console.log('Student logged in:', result.user);
       } else {
-        setLoginError(result.error);
+        const errorMessage = result.error || 'Login failed';
+        setLoginError(errorMessage);
+        
+        // Handle specific Microsoft OAuth errors
+        if (errorMessage.includes('popup_closed_by_user')) {
+          toast.error('Login cancelled. Please try again.');
+        } else if (errorMessage.includes('network')) {
+          toast.error('Network error. Please check your connection and try again.');
+        } else if (errorMessage.includes('auth')) {
+          toast.error('Authentication failed. Please try again.');
+        } else {
+          toast.error(`Login failed: ${errorMessage}`);
+        }
       }
     } catch (error) {
-      setLoginError('Failed to login with Microsoft');
+      const errorMessage = 'Failed to login with Microsoft. Please try again.';
+      setLoginError(errorMessage);
+      toast.error(errorMessage);
+      console.error('Student login error:', error);
+    } finally {
+      setIsStudentLoginLoading(false);
     }
   };
 
@@ -378,7 +419,10 @@ export default function App() {
   };
 
   const handleAdminLogin = async () => {
-    if (!adminEmail || !adminPassword) return;
+    if (!adminEmail || !adminPassword) {
+      toast.error("Please enter both email and password");
+      return;
+    }
     
     setLoginError('');
     try {
@@ -387,13 +431,17 @@ export default function App() {
         setAdminLoginOpen(false);
         setAdminEmail("");
         setAdminPassword("");
-       
+        toast.success("Admin login successful!");
         // isAdminLoggedIn will be set by the auth state observer
       } else {
-        setLoginError(result.error);
+        const errorMessage = result.error || 'Login failed';
+        setLoginError(errorMessage);
+        toast.error(`Login failed: ${errorMessage}`);
       }
     } catch (error) {
-      setLoginError('Login failed');
+      const errorMessage = 'Login failed - please try again';
+      setLoginError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -621,7 +669,12 @@ export default function App() {
                 <>
                   <Dialog
                     open={studentLoginOpen}
-                    onOpenChange={setStudentLoginOpen}
+                    onOpenChange={(open) => {
+                      setStudentLoginOpen(open);
+                      if (!open) {
+                        setLoginError(''); // Clear error when dialog closes
+                      }
+                    }}
                   >
                     <DialogTrigger asChild>
                       <Button variant="outline" size="sm">
@@ -630,21 +683,48 @@ export default function App() {
                     </DialogTrigger>
                     <DialogContent className="sm:max-w-[425px]">
                       <DialogHeader>
-                        <DialogTitle>Log in</DialogTitle>
+                        <DialogTitle>Student Login</DialogTitle>
+                        <DialogDescription>
+                          Sign in with your Office 365 account to access faculty services.
+                        </DialogDescription>
                       </DialogHeader>
                       <div className="grid gap-4 py-6">
+                        {loginError && (
+                          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                            <div className="flex items-center gap-2">
+                              <div className="w-4 h-4 text-red-500">⚠️</div>
+                              <span>{loginError}</span>
+                            </div>
+                          </div>
+                        )}
                         <Button
                           onClick={handleOffice365Login}
                           variant="outline"
                           className="w-full flex items-center gap-3 h-12"
+                          disabled={isStudentLoginLoading}
                         >
-                          <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center">
-                            <span className="text-white text-xs font-bold">
-                              M
-                            </span>
-                          </div>
-                          Log in with Office 365
+                          {isStudentLoginLoading ? (
+                            <>
+                              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                              <span>Signing in...</span>
+                            </>
+                          ) : (
+                            <>
+                              <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center">
+                                <span className="text-white text-xs font-bold">
+                                  M
+                                </span>
+                              </div>
+                              Log in with Office 365
+                            </>
+                          )}
                         </Button>
+                        
+                        <div className="text-center">
+                          <p className="text-xs text-gray-500">
+                            By signing in, you agree to our terms of service and privacy policy.
+                          </p>
+                        </div>
                       </div>
                     </DialogContent>
                   </Dialog>
@@ -665,6 +745,11 @@ export default function App() {
                         </DialogDescription>
                       </DialogHeader>
                       <div className="grid gap-4 py-4">
+                        {loginError && (
+                          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                            {loginError}
+                          </div>
+                        )}
                         <div className="grid gap-2">
                           <Label htmlFor="adminEmail">
                             Email
@@ -673,9 +758,11 @@ export default function App() {
                             id="adminEmail"
                             placeholder="Enter admin Email"
                             value={adminEmail}
-                            onChange={(e) =>
-                              setAdminEmail(e.target.value)
-                            }
+                            onChange={(e) => {
+                              setAdminEmail(e.target.value);
+                              if (loginError) setLoginError(''); // Clear error when user starts typing
+                            }}
+                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
                           />
                         </div>
                         <div className="grid gap-2">
@@ -687,9 +774,11 @@ export default function App() {
                             type="password"
                             placeholder="Enter admin password"
                             value={adminPassword}
-                            onChange={(e) =>
-                              setAdminPassword(e.target.value)
-                            }
+                            onChange={(e) => {
+                              setAdminPassword(e.target.value);
+                              if (loginError) setLoginError(''); // Clear error when user starts typing
+                            }}
+                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
                           />
                         </div>
                       </div>
@@ -828,13 +917,39 @@ export default function App() {
           <DialogContent className="sm:max-w-[425px]">
             <DialogHeader className="text-center">
               <DialogTitle>Add New RFID Tag</DialogTitle>
-              <div className="text-center">
-                <p className="text-lg font-medium text-black">
-                  Scanner is in scan mode, tap the RFID to add the UID to database
-                </p>
-              </div>
+              <DialogDescription>
+                Scanner is in scan mode. Tap the RFID tag to add it to the database.
+              </DialogDescription>
             </DialogHeader>
-          
+            
+            <div className="text-center py-6">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center">
+                  <CreditCard className="w-8 h-8 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-lg font-medium text-gray-900">
+                    Ready to Scan
+                  </p>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Place RFID tag near the scanner
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsAddRfidPopupOpen(false);
+                  espWebSocket.setAddRfidDialogState(false);
+                  espWebSocket.setScanMode(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -1645,6 +1760,9 @@ export default function App() {
           )}
         </main>
       </div>
+      
+      {/* Toast Notifications */}
+      <Toaster />
     </div>
   );
 }

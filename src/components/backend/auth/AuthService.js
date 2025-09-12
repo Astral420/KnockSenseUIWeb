@@ -67,9 +67,43 @@ export const authService = {
         microsoftToken: accessToken
       };
     } catch (error) {
+      // Enhanced error handling for Microsoft OAuth
+      let errorMessage = 'Login failed';
+      
+      if (error.code) {
+        switch (error.code) {
+          case 'auth/popup-closed-by-user':
+            errorMessage = 'Login cancelled by user';
+            break;
+          case 'auth/popup-blocked':
+            errorMessage = 'Popup blocked by browser. Please allow popups and try again.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Network error. Please check your internet connection.';
+            break;
+          case 'auth/too-many-requests':
+            errorMessage = 'Too many login attempts. Please try again later.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'This account has been disabled.';
+            break;
+          case 'auth/operation-not-allowed':
+            errorMessage = 'Microsoft login is not enabled for this application.';
+            break;
+          case 'auth/account-exists-with-different-credential':
+            errorMessage = 'An account already exists with this email using a different login method.';
+            break;
+          default:
+            errorMessage = error.message || 'Authentication failed';
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       return {
         success: false,
-        error: error.message
+        error: errorMessage,
+        code: error.code
       };
     }
   },

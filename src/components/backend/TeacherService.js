@@ -11,6 +11,33 @@ class TeacherService {
     this.rfidTagsRaw = {}; // rfid_tags snapshot
   }
 
+  // Utility function to check if a timestamp is from today
+  isToday(timestamp) {
+    if (!timestamp) return false;
+    try {
+      const date = new Date(parseInt(timestamp));
+      const today = new Date();
+      return date.toDateString() === today.toDateString();
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Utility function to calculate time difference
+  getTimeDifference(startTime, endTime) {
+    if (!startTime || !endTime) return null;
+    try {
+      const start = new Date(parseInt(startTime));
+      const end = new Date(parseInt(endTime));
+      const diffMs = end - start;
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+      return `${hours}h ${minutes}m`;
+    } catch (error) {
+      return null;
+    }
+  }
+
   // Map raw teacher snapshot to UI-friendly object
   mapTeacher(key, t) {
     const raw = (t?.active_status || 'offline').toLowerCase();
@@ -36,6 +63,32 @@ class TeacherService {
       }
     }
 
+    // Format time tracking data
+    const formatTime = (timestamp) => {
+      if (!timestamp) return '--';
+      try {
+        const date = new Date(parseInt(timestamp));
+        return date.toLocaleTimeString('en-US', { 
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: true 
+        });
+      } catch (error) {
+        console.warn('Invalid timestamp:', timestamp);
+        return '--';
+      }
+    };
+
+    // Get first time in for today (prioritize today_first_entry, fallback to last_entry_time)
+    const firstTimeIn = t?.today_first_entry || t?.last_entry_time;
+    const lastTimeOut = t?.today_last_exit || t?.last_exit_time;
+
+    // Calculate time spent today if we have both entry and exit times
+    const timeSpentToday = this.getTimeDifference(t?.today_first_entry, t?.today_last_exit);
+    
+    // Check if teacher is currently in (has entry but no exit today)
+    const isCurrentlyIn = t?.today_first_entry && !t?.today_last_exit && this.isToday(t?.today_first_entry);
+
     return {
       id: key,
       name: displayName,
@@ -46,8 +99,22 @@ class TeacherService {
       status: normalizedStatus,
       isActive: active,
       lastSeen: 'Pending',
-      timeIn: '--',
-      timeOut: '--',
+      timeIn: formatTime(firstTimeIn),
+      timeOut: formatTime(lastTimeOut),
+      // Add raw timestamp data for debugging/advanced use
+      rawTimeData: {
+        today_first_entry: t?.today_first_entry,
+        today_last_exit: t?.today_last_exit,
+        last_entry_time: t?.last_entry_time,
+        last_exit_time: t?.last_exit_time
+      },
+      // Additional time tracking info
+      timeTracking: {
+        timeSpentToday: timeSpentToday,
+        isCurrentlyIn: isCurrentlyIn,
+        hasEntryToday: this.isToday(t?.today_first_entry),
+        hasExitToday: this.isToday(t?.today_last_exit)
+      },
       photoUrl: t?.photoUrl || '',
       initials,
       color: 'bg-blue-500',

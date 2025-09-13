@@ -61,7 +61,11 @@ import {
 //   teacherID: string,
 //   rfid_uid?: string,
 //   active_status?: 'online' | 'offline',
-//   photoUrl?: string
+//   photoUrl?: string,
+//   today_first_entry?: number, // timestamp of first entry today
+//   today_last_exit?: number,   // timestamp of last exit today
+//   last_entry_time?: number,   // timestamp of most recent entry
+//   last_exit_time?: number     // timestamp of most recent exit
 // }
 
 const appointmentHistory = [
@@ -324,17 +328,16 @@ export default function App() {
 
 
   // computed inside the component (so it re-evaluates after state changes)
-  const availableProfessors = facultyMembers.filter((prof) => {
-    // check whether any device (any facultyMembers item) currently has this professor assigned
-    const isAssignedSomewhere = facultyMembers.some(
-      (device) => device.assignedProfId === prof.id,
-    );
-    // available if not assigned anywhere OR if this professor is the one currently
-    // assigned to the RFID we're editing (so they show up when re-opening)
-    return (
-      !isAssignedSomewhere ||
-      prof.id === selectedFacultyForRfid?.assignedProfId
-    );
+  const availableProfessors = facultyMembers.map((prof) => {
+    // Check if this professor is already assigned to any RFID
+    const isAssignedToRfid = prof.rfid && prof.rfid !== '--';
+    const assignedRfidUid = prof.rfid;
+    
+    return {
+      ...prof,
+      isAssignedToRfid,
+      assignedRfidUid
+    };
   });
 
   const handleRemoveRfid = (facultyId) => {
@@ -1313,14 +1316,13 @@ export default function App() {
                         <div className="flex items-center gap-8">
                           <div className="text-center">
                             <p className="text-sm font-medium text-gray-900">
-                              {" "}
-                              First Time In
+                              First Time In Today
                             </p>
                             <p className="text-sm text-gray-500">{faculty.timeIn}</p>
                           </div>
                           <div className="text-center">
                             <p className="text-sm font-medium text-gray-900">
-                              Last Time Out
+                              Last Time Out Today
                             </p>
                             <p className="text-sm text-gray-500">{faculty.timeOut}</p>
                           </div>
@@ -1617,23 +1619,75 @@ export default function App() {
                                   Assign Professor
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  Choose a professor to assign to RFID <b>{selectedTagUid}</b>
+                                  <div className="space-y-2">
+                                    <p>Choose a professor to assign to RFID <span className="font-mono font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded">{selectedTagUid}</span></p>
+                                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                                      <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                      <span>Available professors can be assigned</span>
+                                      <div className="w-2 h-2 bg-amber-400 rounded-full ml-2"></div>
+                                      <span>Already assigned professors are unavailable</span>
+                                    </div>
+                                  </div>
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
 
-                              <div className="space-y-2 max-h-60 overflow-y-auto">
+                              <div className="space-y-3 max-h-60 overflow-y-auto">
                                 {availableProfessors.map(
                                   (prof) => (
-                                    <Button
-                                      key={prof.id}
-                                      variant="outline"
-                                      className="w-full justify-start"
-                                      onClick={() =>
-                                        rfidService.assignRFIDToFaculty(selectedTagUid!, prof.id, prof.name).then(() => setIsAssignDialogOpen(false))
-                                      }
-                                    >
-                                      {prof.name}
-                                    </Button>
+                                    <div key={prof.id} className="relative">
+                                      {prof.isAssignedToRfid ? (
+                                        // Disabled/Assigned Professor Card
+                                        <div className="w-full p-4 border border-gray-200 rounded-lg bg-gradient-to-r from-gray-50 to-gray-100 cursor-not-allowed">
+                                          <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                              <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center">
+                                                <span className="text-xs font-medium text-gray-600">
+                                                  {prof.initials}
+                                                </span>
+                                              </div>
+                                              <div className="flex flex-col">
+                                                <span className="font-medium text-gray-600">{prof.name}</span>
+                                                <div className="flex items-center gap-2 mt-1">
+                                                  <div className="w-2 h-2 bg-amber-400 rounded-full"></div>
+                                                  <span className="text-xs text-amber-600 font-medium">
+                                                    Assigned to RFID {prof.assignedRfidUid}
+                                                  </span>
+                                                </div>
+                                              </div>
+                                            </div>
+                                            <div className="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded-full">
+                                              Unavailable
+                                            </div>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        // Available Professor Button
+                                        <Button
+                                          variant="outline"
+                                          className="w-full justify-start p-4 h-auto hover:bg-blue-50 hover:border-blue-200 transition-colors"
+                                          onClick={() => {
+                                            rfidService.assignRFIDToFaculty(selectedTagUid!, prof.id, prof.name).then(() => setIsAssignDialogOpen(false));
+                                          }}
+                                        >
+                                          <div className="flex items-center gap-3 w-full">
+                                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                              <span className="text-xs font-medium text-blue-600">
+                                                {prof.initials}
+                                              </span>
+                                            </div>
+                                            <div className="flex flex-col items-start">
+                                              <span className="font-medium text-gray-900">{prof.name}</span>
+                                              <div className="flex items-center gap-2 mt-1">
+                                                <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                                <span className="text-xs text-green-600 font-medium">
+                                                  Available for assignment
+                                                </span>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </Button>
+                                      )}
+                                    </div>
                                   ),
                                 )}
                               </div>

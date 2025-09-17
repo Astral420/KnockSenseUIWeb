@@ -156,6 +156,7 @@ export default function App() {
   const [ssid, setSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [isConnected, setIsConnected] = useState(false);
+  const [backupBatteryPercent, setBackupBatteryPercent] = useState<number | null>(null);
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -269,6 +270,13 @@ export default function App() {
         } else {
           // If it ever reconnects, disable failsafe mode.
           setIsFailsafeMode(false);
+        }
+
+        // Update backup battery percent if present
+        if (typeof msg.backup_battery_percent === 'number') {
+          setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.backup_battery_percent))));
+        } else if (typeof msg.battery_percent === 'number') {
+          setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.battery_percent))));
         }
       }
      
@@ -1485,11 +1493,6 @@ export default function App() {
                     Add RFID
                   </Button>
 
-                   
-
-
-
-
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
@@ -1543,7 +1546,7 @@ export default function App() {
                             ) : (<p className="text-sm text-gray-400 italic">Not assigned</p>)}
                           </div>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-8">
                           {/* Toggle Switch */}
                           <div className="flex flex-col items-center gap-2">
                             <Switch
@@ -1557,7 +1560,7 @@ export default function App() {
                               {isTagActive(tag) ? "Active" : "Inactive"}
                             </span>
                           </div>
-
+                              
                           {/* Assign/Unassign Prof Button */}
                           {tag.assignedTo?.facultyId ? (
                           <AlertDialog>
@@ -1565,7 +1568,7 @@ export default function App() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200"
+                                className="text-orange-600 hover:text-orange-700 hover:bg-orange-50 border-orange-200 w-[130px]"
                               >
                                 <CreditCard className="w-4 h-4 mr-2" />
                                 Unassign Prof
@@ -1599,6 +1602,7 @@ export default function App() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="w-[130px]"
                             onClick={() => {
                               setSelectedTagUid(tag.uid);
                               setIsAssignDialogOpen(true);
@@ -1789,25 +1793,38 @@ export default function App() {
                     </Button>
                   </div>
 
-                  {/* Connection Status */}
-                  <div className="p-4 border rounded-lg flex items-center justify-between">
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        Connection Status
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {isConnected
-                          ? "Internet is Available"
-                          : "No Internet Connection"}
-                      </p>
-                    </div>
-                    <Button
-                      variant="outline"
-                      onClick={handleCheckConnection}
-                    >
-                      Check Connection
-                    </Button>
-                  </div>
+                  {/* Compact Status Cards Row */}
+<div className="flex gap-4 w-full max-w-2xl">
+  {/* Connection Status */}
+  <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
+    <div className="text-left">
+      <p className="text-sm font-medium text-gray-900">Connection Status</p>
+      <p className="text-xs text-gray-500">
+        {isConnected ? "Connected" : "No Connection"}
+      </p>
+    </div>
+    <Button 
+      variant="outline" 
+      size="sm" 
+      onClick={handleCheckConnection}
+      className="text-xs py-1 px-2"
+    >
+      Check Connection
+    </Button>
+  </div>
+
+  {/* Battery Percentage */}
+  <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
+  <div className="text-left">
+      <p className="text-sm font-medium text-gray-900">Battery Percentage</p>
+    </div>
+    <div className="text-right">
+      <p className="text-lg font-medium text-gray-900">
+        {backupBatteryPercent === null ? 'Unknown' : `${backupBatteryPercent}%`}
+      </p>
+    </div>
+  </div>
+</div>
                 </CardContent>
               </Card>
             </>

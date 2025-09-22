@@ -9,6 +9,7 @@ class WebSocketService {
     this.host = null;
     this.port = null;
     this.isAddRfidDialogOpen = false; // Track dialog state
+    this.connectionStateHandlers = new Set(); // Track connection state changes
   }
 
   connect(host = window.location.hostname, port = 81) {
@@ -30,6 +31,7 @@ class WebSocketService {
         console.log('ESP32 WebSocket connected');
         this.connectionState = 'connected';
         this.clearReconnectTimer();
+        this.notifyConnectionStateChange('connected');
         
         // Send initial status request
         this.send({ type: 'status' });
@@ -71,8 +73,13 @@ class WebSocketService {
               break;
               
             default:
-              // Pass to registered handlers
-              this.notifyHandlers(data);
+              // Check if this is a WiFi status message without explicit type
+              if (this.isWifiStatusMessage(data)) {
+                this.handleWifiStatus(data);
+              } else {
+                // Pass to registered handlers
+                this.notifyHandlers(data);
+              }
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
@@ -82,12 +89,14 @@ class WebSocketService {
       this.ws.onerror = (error) => {
         console.error('ESP32 WebSocket error:', error);
         this.connectionState = 'error';
+        this.notifyConnectionStateChange('error');
       };
 
       this.ws.onclose = () => {
         console.log('ESP32 WebSocket disconnected');
         this.connectionState = 'disconnected';
         this.ws = null;
+        this.notifyConnectionStateChange('disconnected');
         this.scheduleReconnect();
       };
       
@@ -183,6 +192,25 @@ class WebSocketService {
     this.messageHandlers.delete(handler);
   }
 
+  // Connection state handler management
+  addConnectionStateHandler(handler) {
+    this.connectionStateHandlers.add(handler);
+  }
+
+  removeConnectionStateHandler(handler) {
+    this.connectionStateHandlers.delete(handler);
+  }
+
+  notifyConnectionStateChange(state) {
+    for (const handler of this.connectionStateHandlers) {
+      try {
+        handler(state);
+      } catch (error) {
+        console.error('Error in connection state handler:', error);
+      }
+    }
+  }
+
   notifyHandlers(data) {
     for (const handler of this.messageHandlers) {
       try {
@@ -215,11 +243,18 @@ class WebSocketService {
 
   handleWifiStatus(data) {
     console.log('WiFi status:', data);
+    
+    // Extract WiFi status from various possible message formats
+    const connected = data.connected || data.wifi_connected || data.sta_connected || false;
+    const ssid = data.ssid || '';
+    const ip = data.ip || '';
+    
     this.notifyHandlers({
       type: 'wifi_status',
-      connected: data.connected,
-      ssid: data.ssid,
-      ip: data.ip
+      connected: connected,
+      ssid: ssid,
+      ip: ip,
+      wifi_connected: connected // Add this for consistency with system_status
     });
   }
 
@@ -229,6 +264,17 @@ class WebSocketService {
       type: 'system_status',
       ...data
     });
+  }
+
+  // Check if a message is a WiFi status message (even without explicit type)
+  isWifiStatusMessage(data) {
+    // Check for WiFi status indicators in the message
+    return (
+      (data.hasOwnProperty('connected') && (data.hasOwnProperty('ssid') || data.hasOwnProperty('ip'))) ||
+      (data.hasOwnProperty('wifi_connected')) ||
+      (data.hasOwnProperty('wifi_status')) ||
+      (data.hasOwnProperty('sta_connected'))
+    );
   }
 
   // Utility methods

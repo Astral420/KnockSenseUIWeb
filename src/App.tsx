@@ -32,7 +32,7 @@ import {
 } from "./components/ui/dialog";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { teacherService } from './components/backend/TeacherService';
 
 import authService from './components/backend/auth/AuthService';
@@ -168,6 +168,10 @@ export default function App() {
   const [selectedTagUid, setSelectedTagUid] = useState<string | null>(null);
 
   const [isFailsafeMode, setIsFailsafeMode] = useState(false);
+  const [wifiConnected, setWifiConnected] = useState(true); // Track ESP32 WiFi station status
+
+  // Auto-logout timer for student sessions (non-admin)
+  const studentLogoutTimerRef = useRef<number | null>(null);
 
   const isTagActive = (tag: any) => tag?.status === 'active' || tag?.status === true || tag?.status === 'Active';
 
@@ -192,9 +196,85 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // WiFi status handler - listen for ESP32 WiFi station status
+  useEffect(() => {
+    const wifiStatusHandler = (msg) => {
+      console.log('Received WebSocket message:', msg);
+      
+      if (msg.type === 'wifi_status' || msg.type === 'system_status') {
+        const isWifiConnected = msg.connected || msg.wifi_connected;
+        console.log('WiFi connected status from ESP32:', isWifiConnected);
+        
+        setWifiConnected(isWifiConnected);
+        
+        if (!isWifiConnected) {
+          console.log('ESP32 WiFi disconnected - entering offline mode');
+          setIsFailsafeMode(true);
+          setIsAdminLoggedIn(true);
+          setCurrentPage("hardware");
+          setAuthLoading(false);
+        } else if (isWifiConnected && isFailsafeMode) {
+          console.log('ESP32 WiFi reconnected - refreshing page');
+          setIsFailsafeMode(false);
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }
+      }
+    };
+  
+    const connectionStateHandler = (state) => {
+      console.log('WebSocket connection state:', state);
+      if (state === 'connected') {
+        // Multiple status requests to ensure we get current state
+        setTimeout(() => {
+          console.log('Requesting system status...');
+          espWebSocket.requestSystemStatus();
+        }, 500);
+        
+        setTimeout(() => {
+          espWebSocket.requestSystemStatus();
+        }, 2000);
+      }
+    };
+  
+    espWebSocket.addMessageHandler(wifiStatusHandler);
+    espWebSocket.addConnectionStateHandler(connectionStateHandler);
+    
+    // Immediate status check on component mount
+    if (espWebSocket.isConnected()) {
+      console.log('WebSocket already connected, requesting status');
+      espWebSocket.requestSystemStatus();
+    }
+    
+    // Fallback: Check periodically if we haven't received status
+    const statusCheckInterval = setInterval(() => {
+      if (espWebSocket.isConnected() && !isFailsafeMode) {
+        console.log('Periodic status check...');
+        espWebSocket.requestSystemStatus();
+      }
+    }, 5000);
+  
+    return () => {
+      espWebSocket.removeMessageHandler(wifiStatusHandler);
+      espWebSocket.removeConnectionStateHandler(connectionStateHandler);
+      clearInterval(statusCheckInterval);
+    };
+  }, [isFailsafeMode]);
+
+  // Bypass authentication in offline mode
+  useEffect(() => {
+    if (isFailsafeMode) {
+      // In offline mode, grant admin access for hardware settings
+      setIsAdminLoggedIn(true);
+      setCurrentPage("hardware");
+      setAuthLoading(false);
+    }
+  }, []);
+
   // Subscribe to teachers via service — resubscribe on auth changes
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || isFailsafeMode) return; // Skip Firebase calls in offline mode
     setFacultyLoading(true);
     setFacultyError("");
     const handle = (teachers: any[]) => {
@@ -214,7 +294,7 @@ export default function App() {
     };
     teacherService.subscribeToTeachers(handle, handleError);
     return () => teacherService.unsubscribeFromTeachers(handle);
-  }, [authLoading, user?.uid]);
+  }, [authLoading, user?.uid, isFailsafeMode]);
 
   // RFID tag subscription - only start after auth is loaded and user is admin
   useEffect(() => {
@@ -244,34 +324,13 @@ export default function App() {
     }
   }, [authLoading, isAdminLoggedIn]);
 
-  // ESP32 WebSocket connection and message handling
-  useEffect(() => {
-    // Connect to ESP32 WebSocket
-    espWebSocket.connect(window.location.hostname, 81);
-    const handler = (msg) => {
-      console.log('ESP message:', msg);
-    };
-    espWebSocket.addMessageHandler(handler);
-    return () => {
-      espWebSocket.removeMessageHandler(handler);
-    };
-  }, []);
 
   useEffect(() => {
     const handler = (msg) => {
       console.log('ESP message:', msg);
   
-      // ✅ ADD THIS LOGIC
-      // Check for system status and enable failsafe mode if WiFi is disconnected.
+      // Handle system status messages for battery info
       if (msg.type === 'system_status') {
-        if (msg.wifi_connected === false) {
-          console.log('Device is offline. Enabling failsafe recovery mode.');
-          setIsFailsafeMode(true);
-        } else {
-          // If it ever reconnects, disable failsafe mode.
-          setIsFailsafeMode(false);
-        }
-
         // Update backup battery percent if present
         if (typeof msg.backup_battery_percent === 'number') {
           setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.backup_battery_percent))));
@@ -284,7 +343,7 @@ export default function App() {
   
     espWebSocket.addMessageHandler(handler);
     
-    // Also request the status on initial load
+    // Connect to WebSocket and request initial status
     espWebSocket.connect(window.location.hostname, 81);
     espWebSocket.requestSystemStatus();
   
@@ -360,7 +419,12 @@ export default function App() {
 
   const handleSaveWifiConfig = () => {
     espWebSocket.sendWifiConfig(ssid, wifiPassword);
-    alert(`WiFi Config Saved!\nSSID: ${ssid}\nPassword: ${wifiPassword}`);
+    toast.success(`WiFi Config Saved! The page will refresh to apply changes.`);
+    
+    // Refresh the page after a short delay to apply the new WiFi configuration
+    setTimeout(() => {
+      window.location.reload();
+    }, 3000);
   };
 
   const handleCheckConnection = async () => {
@@ -378,36 +442,48 @@ export default function App() {
   };
 
   const handleOffice365Login = async () => {
-    setLoginError('');
     setIsStudentLoginLoading(true);
     
     try {
       const result = await authService.loginWithMicrosoft();
       if (result.success) {
         setStudentLoginOpen(false);
-        setLoginError(''); // Clear any previous errors
         toast.success(`Welcome ${result.user.displayName || result.user.email}!`);
         console.log('Student logged in:', result.user);
       } else {
         const errorMessage = result.error || 'Login failed';
-        setLoginError(errorMessage);
+        const code = result.code || '';
         
-        // Handle specific Microsoft OAuth errors
-        if (errorMessage.includes('popup_closed_by_user')) {
-          toast.error('Login cancelled. Please try again.');
-        } else if (errorMessage.includes('network')) {
+        // Specific handling for popup closed
+        if (code === 'auth/popup-closed-by-user' || errorMessage.toLowerCase().includes('cancel')) {
+          const msg = 'Sign in has been cancelled.';
+          setIsStudentLoginLoading(false);
+          toast.error(msg);
+        } else if (errorMessage.toLowerCase().includes('network')) {
           toast.error('Network error. Please check your connection and try again.');
-        } else if (errorMessage.includes('auth')) {
+          setIsStudentLoginLoading(false);
+        } else if (errorMessage.toLowerCase().includes('auth')) {
           toast.error('Authentication failed. Please try again.');
+          setIsStudentLoginLoading(false);
         } else {
+          setIsStudentLoginLoading(false);
           toast.error(`Login failed: ${errorMessage}`);
         }
       }
     } catch (error) {
-      const errorMessage = 'Failed to login with Microsoft. Please try again.';
-      setLoginError(errorMessage);
-      toast.error(errorMessage);
-      console.error('Student login error:', error);
+      // Handle popup closed by user from thrown error
+      const anyErr: any = error as any;
+      const code = anyErr?.code ? String(anyErr.code) : '';
+      if (code === 'auth/popup-closed-by-user') {
+        const msg = 'Sign in has been cancelled.';
+        setIsStudentLoginLoading(false);
+        toast.error(msg);
+      } else {
+        const errorMessage = 'Failed to login with Microsoft. Please try again.';
+        setIsStudentLoginLoading(false);
+        toast.error(errorMessage);
+        console.error('Student login error:', error);
+      }
     } finally {
       setIsStudentLoginLoading(false);
     }
@@ -573,6 +649,43 @@ export default function App() {
 
   const [currentPage, setCurrentPage] = useState("dashboard");
 
+  // Auto-logout student after 2 minutes
+  useEffect(() => {
+    // Apply only when a student (non-admin) is logged in and not in failsafe mode
+    if (user && !isAdminLoggedIn && !isFailsafeMode) {
+      // Clear any existing timer
+      if (studentLogoutTimerRef.current) {
+        clearTimeout(studentLogoutTimerRef.current);
+        studentLogoutTimerRef.current = null;
+      }
+      // Start new 2-minute timer
+      studentLogoutTimerRef.current = window.setTimeout(async () => {
+        try {
+          await authService.logout();
+          toast.info('Session expired after 2 minutes. You have been logged out.');
+        } catch (e) {
+          // No-op; best effort
+        } finally {
+          studentLogoutTimerRef.current = null;
+        }
+      }, 120_000);
+    } else {
+      // If not applicable, clear any existing timer
+      if (studentLogoutTimerRef.current) {
+        clearTimeout(studentLogoutTimerRef.current);
+        studentLogoutTimerRef.current = null;
+      }
+    }
+
+    // Cleanup on dependency change/unmount
+    return () => {
+      if (studentLogoutTimerRef.current) {
+        clearTimeout(studentLogoutTimerRef.current);
+        studentLogoutTimerRef.current = null;
+      }
+    };
+  }, [user?.uid, isAdminLoggedIn, isFailsafeMode]);
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Sidebar */}
@@ -588,46 +701,68 @@ export default function App() {
 
         <nav className="mt-8">
           <div className="px-6 space-y-2">
-            <button
-              onClick={() => setCurrentPage("dashboard")}
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                currentPage === "dashboard"
-                  ? "bg-blue-50 text-blue-700"
-                  : "hover:bg-gray-100 text-gray-700"
-              }`}
-            >
-              <Home className="w-5 h-5" />
-              Dashboard
-            </button>
+            {/* In offline mode, only show hardware settings */}
+            {isFailsafeMode ? (
+              <div className="space-y-2">
+                <div className="px-3 py-2 text-xs font-semibold text-red-600 uppercase tracking-wide">
+                  Offline Mode
+                </div>
+                <button
+                  onClick={() => setCurrentPage("hardware")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                    currentPage === "hardware"
+                      ? "bg-blue-50 text-blue-700"
+                      : "hover:bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  <Settings className="w-5 h-5" />
+                  Hardware Settings
+                </button>
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => setCurrentPage("dashboard")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                    currentPage === "dashboard"
+                      ? "bg-blue-50 text-blue-700"
+                      : "hover:bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  <Home className="w-5 h-5" />
+                  Dashboard
+                </button>
 
-            {/* Show only if Admin is logged in */}
-            {(isAdminLoggedIn || isFailsafeMode) && (
-              <button
-                onClick={() => setCurrentPage("rfid")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                  currentPage === "rfid"
-                    ? "bg-blue-50 text-blue-700"
-                    : "hover:bg-gray-100 text-gray-700"
-                }`}
-              >
-                <CreditCard className="w-5 h-5" />
-                RFID Management
-              </button>
-            )}
+                {/* Show only if Admin is logged in */}
+                {isAdminLoggedIn && (
+                  <button
+                    onClick={() => setCurrentPage("rfid")}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                      currentPage === "rfid"
+                        ? "bg-blue-50 text-blue-700"
+                        : "hover:bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    <CreditCard className="w-5 h-5" />
+                    RFID Management
+                  </button>
+                )}
 
-            {/* New Hardware Settings Button */}
-            {isAdminLoggedIn && (
-              <button
-                onClick={() => setCurrentPage("hardware")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                  currentPage === "hardware"
-                    ? "bg-blue-50 text-blue-700"
-                    : "hover:bg-gray-100 text-gray-700"
-                }`}
-              >
-                <Settings className="w-5 h-5" />
-                Hardware Settings
-              </button>
+                {/* Hardware Settings Button */}
+                {isAdminLoggedIn && (
+                  <button
+                    onClick={() => setCurrentPage("hardware")}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                      currentPage === "hardware"
+                        ? "bg-blue-50 text-blue-700"
+                        : "hover:bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    <Settings className="w-5 h-5" />
+                    Hardware Settings
+                  </button>
+                )}
+              </>
             )}
           </div>
         </nav>
@@ -639,181 +774,210 @@ export default function App() {
         <header className="bg-white border-b border-gray-200 px-8 py-4">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900">
-                {isAdminLoggedIn
-                  ? "Admin Dashboard"
-                  : "Faculty Dashboard"}
-              </h2>
+              <div className="flex items-center gap-3">
+                <h2 className="text-2xl font-semibold text-gray-900">
+                  {isFailsafeMode 
+                    ? "Offline Mode"
+                    : isAdminLoggedIn
+                    ? "Admin Dashboard"
+                    : "Faculty Dashboard"}
+                </h2>
+                {/* WiFi Status Indicator */}
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    isFailsafeMode ? 'bg-amber-500' : wifiConnected ? 'bg-green-500' : 'bg-red-500'
+                  }`}></div>
+                  <span className={`text-xs font-medium ${
+                    isFailsafeMode ? 'text-amber-600' : wifiConnected ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {isFailsafeMode ? 'Standalone Mode' : wifiConnected ? 'Online' : 'Offline'}
+                  </span>
+                </div>
+              </div>
               <p className="text-gray-600 mt-1">
-                {isAdminLoggedIn
+                {isFailsafeMode
+                  ? "ESP32 WiFi is disconnected. Configure WiFi settings to restore connectivity."
+                  : isAdminLoggedIn
                   ? "Manage faculty members and system settings"
                   : "Manage and connect with faculty members"}
               </p>
             </div>
             <div className="flex items-center gap-4">
-              {isAdminLoggedIn && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleLogout}
-                >
-                  <LogOut className="w-4 h-4 mr-2" />
-                  Logout
-                </Button>
-              )}
-              {!isAdminLoggedIn && user && (
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-gray-700 font-medium">
-                    {user.displayName || user.email}
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLogout}
-                  >
-                    <LogOut className="w-4 h-4 mr-2" />
-                    Logout
-                  </Button>
-                </div>
-              )}
-              {!isAdminLoggedIn && !user && (
+              {/* Show login buttons only when NOT in offline mode */}
+              {!isFailsafeMode && (
                 <>
-                  <Dialog
-                    open={studentLoginOpen}
-                    onOpenChange={(open) => {
-                      setStudentLoginOpen(open);
-                      if (!open) {
-                        setLoginError(''); // Clear error when dialog closes
-                      }
-                    }}
-                  >
-                    <DialogTrigger asChild>
-                      <Button variant="outline" size="sm">
-                        Student Login
+                  {isAdminLoggedIn && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleLogout}
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Logout
+                    </Button>
+                  )}
+                  {!isAdminLoggedIn && user && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm text-gray-700 font-medium">
+                        {user.displayName || user.email}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleLogout}
+                      >
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
                       </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                      <DialogHeader>
-                        <DialogTitle>Student Login</DialogTitle>
-                        <DialogDescription>
-                          Sign in with your Office 365 account to access faculty services.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-6">
-                        {loginError && (
-                          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                            <div className="flex items-center gap-2">
-                              <div className="w-4 h-4 text-red-500">⚠️</div>
-                              <span>{loginError}</span>
+                    </div>
+                  )}
+                  {!isAdminLoggedIn && !user && (
+                    <>
+                      <Dialog
+                        open={studentLoginOpen}
+                        onOpenChange={(open) => {
+                          setStudentLoginOpen(open);
+                          if (!open) {
+                            setLoginError(''); // Clear error when dialog closes
+                          }
+                        }}
+                      >
+                        <DialogTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            Student Login
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                          <DialogHeader>
+                            <DialogTitle>Student Login</DialogTitle>
+                            <DialogDescription>
+                              Sign in with your Office 365 account to access faculty services.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-6">
+                             <Button
+                               onClick={handleOffice365Login}
+                               variant="outline"
+                               className="w-full flex items-center gap-3 h-12"
+                               disabled={isStudentLoginLoading}
+                             >
+                              {isStudentLoginLoading ? (
+                                <>
+                                  <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                                  <span>Signing in...</span>
+                                </>
+                              ) : (
+                                <>
+                                    <svg
+                                      className="w-5 h-5"
+                                      viewBox="0 0 21 21"
+                                      fill="none"
+                                      xmlns="http://www.w3.org/2000/svg"
+                                    >
+                                      <rect x="1" y="1" width="9" height="9" fill="#f25022" /> 
+                                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+                                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+                                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+                                    </svg>
+                                  Log in with Office 365
+                                </>
+                              )}
+                            </Button>
+                            
+                            <div className="text-center">
+                              <p className="text-xs text-gray-500">
+                                By signing in, you agree to our terms of service and privacy policy.
+                              </p>
                             </div>
                           </div>
-                        )}
-                        <Button
-                          onClick={handleOffice365Login}
-                          variant="outline"
-                          className="w-full flex items-center gap-3 h-12"
-                          disabled={isStudentLoginLoading}
-                        >
-                          {isStudentLoginLoading ? (
-                            <>
-                              <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                              <span>Signing in...</span>
-                            </>
-                          ) : (
-                            <>
-                              <div className="w-5 h-5 bg-blue-600 rounded flex items-center justify-center">
-                                <span className="text-white text-xs font-bold">
-                                  M
-                                </span>
+                        </DialogContent>
+                      </Dialog>
+                      
+                      <Dialog
+                        open={adminLoginOpen}
+                        onOpenChange={setAdminLoginOpen}
+                      >
+                        <DialogTrigger asChild>
+                          <Button size="sm">Admin Login</Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[425px]">
+                          <DialogHeader>
+                            <DialogTitle>Admin Login</DialogTitle>
+                            <DialogDescription>
+                              Please enter your admin credentials to
+                              access the management panel.
+                            </DialogDescription>
+                          </DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            {loginError && (
+                              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                                {loginError}
                               </div>
-                              Log in with Office 365
-                            </>
-                          )}
-                        </Button>
-                        
-                        <div className="text-center">
-                          <p className="text-xs text-gray-500">
-                            By signing in, you agree to our terms of service and privacy policy.
-                          </p>
-                        </div>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-                  
-                  <Dialog
-                    open={adminLoginOpen}
-                    onOpenChange={setAdminLoginOpen}
-                  >
-                    <DialogTrigger asChild>
-                      <Button size="sm">Admin Login</Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-[425px]">
-                      <DialogHeader>
-                        <DialogTitle>Admin Login</DialogTitle>
-                        <DialogDescription>
-                          Please enter your admin credentials to
-                          access the management panel.
-                        </DialogDescription>
-                      </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        {loginError && (
-                          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                            {loginError}
+                            )}
+                            <div className="grid gap-2">
+                              <Label htmlFor="adminEmail">
+                                Email
+                              </Label>
+                              <Input
+                                id="adminEmail"
+                                placeholder="Enter admin Email"
+                                value={adminEmail}
+                                onChange={(e) => {
+                                  setAdminEmail(e.target.value);
+                                  if (loginError) setLoginError(''); // Clear error when user starts typing
+                                }}
+                                className={loginError ? "border-red-300 focus:border-red-500" : ""}
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <Label htmlFor="adminPassword">
+                                Password
+                              </Label>
+                              <Input
+                                id="adminPassword"
+                                type="password"
+                                placeholder="Enter admin password"
+                                value={adminPassword}
+                                onChange={(e) => {
+                                  setAdminPassword(e.target.value);
+                                  if (loginError) setLoginError(''); // Clear error when user starts typing
+                                }}
+                                className={loginError ? "border-red-300 focus:border-red-500" : ""}
+                              />
+                            </div>
                           </div>
-                        )}
-                        <div className="grid gap-2">
-                          <Label htmlFor="adminEmail">
-                            Email
-                          </Label>
-                          <Input
-                            id="adminEmail"
-                            placeholder="Enter admin Email"
-                            value={adminEmail}
-                            onChange={(e) => {
-                              setAdminEmail(e.target.value);
-                              if (loginError) setLoginError(''); // Clear error when user starts typing
-                            }}
-                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
-                          />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="adminPassword">
-                            Password
-                          </Label>
-                          <Input
-                            id="adminPassword"
-                            type="password"
-                            placeholder="Enter admin password"
-                            value={adminPassword}
-                            onChange={(e) => {
-                              setAdminPassword(e.target.value);
-                              if (loginError) setLoginError(''); // Clear error when user starts typing
-                            }}
-                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          onClick={() =>
-                            setAdminLoginOpen(false)
-                          }
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          onClick={handleAdminLogin}
-                          disabled={
-                            !adminEmail || !adminPassword
-                          }
-                        >
-                          Login
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              onClick={() =>
+                                setAdminLoginOpen(false)
+                              }
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              onClick={handleAdminLogin}
+                              disabled={
+                                !adminEmail || !adminPassword
+                              }
+                            >
+                              Login
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
+                    </>
+                  )}
                 </>
+              )}
+              
+              {/* Offline Mode Indicator - Always show when in offline mode */}
+              {isFailsafeMode && (
+                <div className="flex items-center gap-2 px-4 py-2 bg-red-100 border border-red-200 rounded-lg">
+                  <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                  <span className="text-sm font-semibold text-red-700">Offline Mode</span>
+                  
+                </div>
               )}
             </div>
           </div>
@@ -1752,12 +1916,31 @@ export default function App() {
           {/* === Admin Hardware Settings (only for admin when currentPage === "hardware") === */}
           {(isAdminLoggedIn || isFailsafeMode) && currentPage === "hardware" && (
             <>
+              {/* Offline Mode Banner */}
+              {isFailsafeMode && (
+                <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0">
+                      <Settings className="w-5 h-5 text-amber-600" />
+                    </div>
+                    <div className="ml-3">
+                      <h3 className="text-sm font-medium text-amber-800">Configuration Mode</h3>
+                      <p className="text-sm text-amber-700">
+                        Device is running in standalone mode. Configure network settings to enable online features.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <Card>
                 <CardHeader>
                   <CardTitle>ESP32 Hardware Settings</CardTitle>
                   <p className="text-sm text-gray-600">
-                    Configure WiFi settings and check device
-                    connection status.
+                    {isFailsafeMode 
+                      ? "Configure WiFi settings to restore ESP32 internet connectivity."
+                      : "Configure WiFi settings and check device connection status."
+                    }
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-6">

@@ -182,6 +182,27 @@ class TeacherService {
       for (const cb of this.listeners) cb([]);
       return;
     }
+    
+    // START: Added name formatting function
+    const formatDisplayName = (name) => {
+        if (!name || typeof name !== 'string') {
+            return 'Unknown';
+        }
+        // 1. Remove "(Faculty)" and trim whitespace. 
+        // The 'i' flag makes it case-insensitive.
+        let cleanedName = name.replace(/\s*\(Faculty\)/i, '').trim();
+
+        // 2. Reorder from "Last, First" to "First Last"
+        const parts = cleanedName.split(',').map(part => part.trim());
+        if (parts.length === 2 && parts[0] && parts[1]) {
+            // It's in "Last, First" format, so reverse it
+            return `${parts[1]} ${parts[0]}`;
+        }
+
+        // If not in "Last, First" format (e.g., "Kim Navarro"), return the cleaned name
+        return cleanedName;
+    };
+    // END: Added name formatting function
 
     // Build indices for users by uid and by teacherID
     const usersByUid = this.usersRaw || {};
@@ -194,9 +215,15 @@ class TeacherService {
     const mapped = Object.entries(this.teachersRaw || {}).map(([uid, t]) => {
       const u = usersByUid[uid] || (t?.teacherID ? usersByTeacherId[t.teacherID] : undefined) || {};
       const base = this.mapTeacher(uid, t || {});
+
+      // START: Apply the formatting function
+      const rawName = u?.displayName || base.name;
+      const formattedName = formatDisplayName(rawName);
+
       return {
         ...base,
-        name: u?.displayName || base.name,
+        name: formattedName, // Use the new formatted name
+        // END: Apply the formatting function
         email: u?.email || base.email,
         photoUrl: u?.photoUrl || base.photoUrl,
         teacherID: u?.teacherID || base.teacherID,

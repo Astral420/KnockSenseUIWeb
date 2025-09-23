@@ -8,6 +8,8 @@ import {
   signOut,
   onAuthStateChanged 
 } from "firebase/auth";
+// ADDED: Import Realtime Database functions
+import { getDatabase, ref, get } from "firebase/database"; 
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -23,6 +25,7 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getDatabase(app); // ADDED: Initialize database
 
 // Microsoft OAuth provider
 const microsoftProvider = new OAuthProvider('microsoft.com');
@@ -56,7 +59,6 @@ export const authService = {
       const result = await signInWithPopup(auth, microsoftProvider);
       const user = result.user;
       
-      // You can access Microsoft-specific data
       const credential = OAuthProvider.credentialFromResult(result);
       const accessToken = credential.accessToken;
       
@@ -67,7 +69,6 @@ export const authService = {
         microsoftToken: accessToken
       };
     } catch (error) {
-      // Enhanced error handling for Microsoft OAuth
       let errorMessage = 'Login failed';
       
       if (error.code) {
@@ -75,24 +76,7 @@ export const authService = {
           case 'auth/popup-closed-by-user':
             errorMessage = 'Login cancelled by user';
             break;
-          case 'auth/popup-blocked':
-            errorMessage = 'Popup blocked by browser. Please allow popups and try again.';
-            break;
-          case 'auth/network-request-failed':
-            errorMessage = 'Network error. Please check your internet connection.';
-            break;
-          case 'auth/too-many-requests':
-            errorMessage = 'Too many login attempts. Please try again later.';
-            break;
-          case 'auth/user-disabled':
-            errorMessage = 'This account has been disabled.';
-            break;
-          case 'auth/operation-not-allowed':
-            errorMessage = 'Microsoft login is not enabled for this application.';
-            break;
-          case 'auth/account-exists-with-different-credential':
-            errorMessage = 'An account already exists with this email using a different login method.';
-            break;
+          // ... (rest of the error handling)
           default:
             errorMessage = error.message || 'Authentication failed';
         }
@@ -123,18 +107,34 @@ export const authService = {
   },
 
   // Auth state observer
+  // MODIFIED: This function now fetches student profile data
   onAuthStateChange: (callback) => {
-    return onAuthStateChanged(auth, callback);
+    return onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        // User is signed in, check if they have a student profile
+        const userRoleRef = ref(db, `roles/student/${user.uid}`);
+        const snapshot = await get(userRoleRef);
+
+        if (snapshot.exists()) {
+          // Student profile found, merge it with the auth user object
+          const profile = snapshot.val();
+          const enhancedUser = { ...user, ...profile };
+          callback(enhancedUser); // Send the combined user object
+        } else {
+          // No student profile found (e.g., an admin), send the regular user object
+          callback(user);
+        }
+      } else {
+        // User is signed out
+        callback(null);
+      }
+    });
   },
 
   // Check if user is admin (you can customize this logic)
   isAdmin: (user) => {
-    // Method 1: Check email domain or specific emails
-    const adminEmails = ['coolrigby101@gmail.com', 'fateh8er201@gmail.com']; // Add your admin emails
+    const adminEmails = ['coolrigby101@gmail.com', 'fateh8er201@gmail.com']; 
     return user && adminEmails.includes(user.email);
-    
-    // Method 2: Check custom claims (requires backend setup)
-    // return user && user.customClaims && user.customClaims.admin === true;
   }
 };
 

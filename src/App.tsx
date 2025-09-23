@@ -38,6 +38,7 @@ import { teacherService } from './components/backend/TeacherService';
 import authService from './components/backend/auth/AuthService';
 import { rfidService } from './components/backend/RFIDService';
 import { espWebSocket } from './components/backend/WebSocketService';
+import { appointmentService } from './components/backend/AppointmentService';
 import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
 
@@ -168,7 +169,16 @@ export default function App() {
   const [selectedTagUid, setSelectedTagUid] = useState<string | null>(null);
 
   const [isFailsafeMode, setIsFailsafeMode] = useState(false);
-  const [wifiConnected, setWifiConnected] = useState(true); // Track ESP32 WiFi station status
+  const [wifiConnected, setWifiConnected] = useState(true); 
+
+  const [studentAppointments, setStudentAppointments] = useState([]);
+  const [appointmentLoading, setAppointmentLoading] = useState(false);
+  const [appointmentError, setAppointmentError] = useState('');
+  const [requestMeetingDialogOpen, setRequestMeetingDialogOpen] = useState(false);
+  const [selectedFacultyForMeeting, setSelectedFacultyForMeeting] = useState(null);
+  const [verificationStudentNumber, setVerificationStudentNumber] = useState('');
+  const [appointmentNote, setAppointmentNote] = useState('');
+
 
   // Auto-logout timer for student sessions (non-admin)
   const studentLogoutTimerRef = useRef<number | null>(null);
@@ -489,9 +499,106 @@ export default function App() {
     }
   };
 
-  const handleMeetingRequest = (facultyName) => {
-    setSelectedFaculty(facultyName);
-    setMeetingRequestOpen(true);
+  const handleMeetingRequest = (faculty) => {
+    if (!user) {
+      toast.error('Please login to request a meeting');
+      return;
+    }
+    setSelectedFacultyForMeeting(faculty);
+    setRequestMeetingDialogOpen(true);
+    setVerificationStudentNumber('');
+    setAppointmentNote('');
+  };
+
+  const handleSubmitAppointment = async () => {
+    // 1. Basic check for the input field
+    if (!verificationStudentNumber || verificationStudentNumber.length !== 6) {
+      toast.error('Please enter your 6-digit student number for verification');
+      return;
+    }
+    
+    // 2. Secure check against the trusted user data
+    // Because of our AuthService change, `user.studentNumber` now holds the REAL student number.
+    if (!user?.studentNumber || user.studentNumber !== verificationStudentNumber) { // ✅ This check now works correctly!
+      toast.error('The student number entered does not match your account.');
+      return;
+    }
+    
+    setAppointmentLoading(true);
+    setAppointmentError('');
+    
+    try {
+      const studentData = {
+        // We use the verified number from the user object as the source of truth
+        studentNumber: user.studentNumber,
+        displayName: user.displayName || user.email,
+        uid: user.uid,
+        photoUrl: user.photoURL || null
+      };
+      
+      const teacherData = {
+        uid: selectedFacultyForMeeting.id,
+        name: selectedFacultyForMeeting.name,
+        photoUrl: selectedFacultyForMeeting.photoUrl || null
+      };
+      
+      const result = await appointmentService.createAppointment(
+        studentData,
+        teacherData,
+        appointmentNote || null
+      );
+      
+      if (result.success) {
+        toast.success('Appointment request sent successfully!');
+        setRequestMeetingDialogOpen(false);
+        setVerificationStudentNumber('');
+        setAppointmentNote('');
+      } else {
+        toast.error(result.error || 'Failed to create appointment');
+        setAppointmentError(result.error || 'Failed to create appointment');
+      }
+    } catch (error) {
+      console.error('Error creating appointment:', error);
+      toast.error('An error occurred while creating the appointment');
+      setAppointmentError('An error occurred while creating the appointment');
+    } finally {
+      setAppointmentLoading(false);
+    }
+  };
+
+  const getAppointmentStatusColor = (status: string): string => {
+    switch (status) {
+      case 'pending': return 'bg-yellow-100 text-yellow-700';
+      case 'accepted': return 'bg-green-100 text-green-700';
+      case 'denied': return 'bg-red-100 text-red-700';
+      case 'completed': return 'bg-blue-100 text-blue-700';
+      case 'cancelled': return 'bg-gray-100 text-gray-700';
+      default: return 'bg-gray-100 text-gray-700';
+    }
+  };
+
+  const formatAppointmentDate = (date: Date | string | number | null | undefined): string => {
+    if (!date) return 'Unknown';
+    const dateObj = date instanceof Date ? date : new Date(date);
+    if (isNaN(dateObj.getTime())) return 'Unknown';
+    const now = new Date();
+    const diffMs = now.getTime() - dateObj.getTime();
+    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (days === 0) {
+      const hours = Math.floor(diffMs / (1000 * 60 * 60));
+      if (hours === 0) {
+        const minutes = Math.floor(diffMs / (1000 * 60));
+        return minutes <= 1 ? 'Just now' : `${minutes} minutes ago`;
+      }
+      return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    } else if (days === 1) {
+      return 'Yesterday';
+    } else if (days < 7) {
+      return `${days} days ago`;
+    } else {
+      return dateObj.toLocaleDateString();
+    }
   };
 
   const handleSubmitMeetingRequest = () => {
@@ -685,6 +792,42 @@ export default function App() {
       }
     };
   }, [user?.uid, isAdminLoggedIn, isFailsafeMode]);
+
+  useEffect(() => {
+    let unsubscribe = () => {}; 
+  
+    // Case 1: A student is logged in
+    if (user && !isAdminLoggedIn && user.studentNumber) {
+      setAppointmentLoading(true);
+      unsubscribe = appointmentService.subscribeToStudentAppointments(
+        user.studentNumber,
+        (appointments) => {
+          setStudentAppointments(appointments);
+          setAppointmentLoading(false);
+        }
+      );
+    } 
+    
+    else if (!user && !isAdminLoggedIn) { 
+      setAppointmentLoading(true);
+      
+      unsubscribe = appointmentService.subscribeToAllAppointments(
+        (appointments) => {
+          setStudentAppointments(appointments); 
+          setAppointmentLoading(false);
+        }
+      );
+    } 
+    
+    else {
+      setStudentAppointments([]); 
+    }
+    
+   
+    return () => unsubscribe();
+  }, [user, isAdminLoggedIn]); 
+
+
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -986,54 +1129,88 @@ export default function App() {
         {/* All Dialogs */}
         {/* Meeting Request Dialog */}
         <Dialog
-          open={meetingRequestOpen}
-          onOpenChange={setMeetingRequestOpen}
-        >
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Request Meeting</DialogTitle>
-              <DialogDescription>
-                Please enter your 6-digit student number to
-                request a meeting with {selectedFaculty}.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="studentNumber">
-                  Student Number
-                </Label>
-                <Input
-                  id="studentNumber"
-                  placeholder="Enter 6-digit student number"
-                  value={studentNumber}
-                  onChange={(e) => {
-                    const value = e.target.value
-                      .replace(/\D/g, "")
-                      .slice(0, 6);
-                    setStudentNumber(value);
-                  }}
-                  maxLength={6}
-                />
+        open={requestMeetingDialogOpen}
+        onOpenChange={setRequestMeetingDialogOpen}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Request Meeting with {selectedFacultyForMeeting?.name}</DialogTitle>
+            <DialogDescription>
+              Enter your student number for verification and add an optional note for the faculty member.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            {appointmentError && (
+              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                {appointmentError}
               </div>
+            )}
+            
+            <div className="grid gap-2">
+              <Label htmlFor="verificationNumber">
+                Student Number (Required for verification)
+              </Label>
+              <Input
+                id="verificationNumber"
+                placeholder="Enter your 6-digit student number"
+                value={verificationStudentNumber}
+                onChange={(e) => {
+                  const value = e.target.value.replace(/\D/g, '').slice(0, 6);
+                  setVerificationStudentNumber(value);
+                  setAppointmentError('');
+                }}
+                maxLength={6}
+                disabled={appointmentLoading}
+              />
+              <p className="text-xs text-gray-500">
+                This is required to verify your identity and prevent abuse
+              </p>
             </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setMeetingRequestOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleSubmitMeetingRequest}
-                disabled={
-                  !studentNumber || studentNumber.length !== 6
-                }
-              >
-                Submit Request
-              </Button>
+            
+            <div className="grid gap-2">
+              <Label htmlFor="appointmentNote">
+                Note (Optional)
+              </Label>
+              <textarea
+                id="appointmentNote"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Add a note for the faculty member..."
+                rows={3}
+               value={appointmentNote}
+               onChange={(e) => setAppointmentNote(e.currentTarget.value)}
+                disabled={appointmentLoading}
+              />
             </div>
-          </DialogContent>
-        </Dialog>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRequestMeetingDialogOpen(false);
+                setVerificationStudentNumber('');
+                setAppointmentNote('');
+                setAppointmentError('');
+              }}
+              disabled={appointmentLoading}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitAppointment}
+              disabled={!verificationStudentNumber || verificationStudentNumber.length !== 6 || appointmentLoading}
+            >
+              {appointmentLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  Submitting...
+                </>
+              ) : (
+                'Submit Request'
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
         {/* RFID Assignment Dialog */}
         <Dialog
@@ -1054,8 +1231,8 @@ export default function App() {
                 <Input
                   id="newRfidId"
                   placeholder="Enter RFID ID"
-                  value={newRfidId}
-                  onChange={(e) => setNewRfidId(e.target.value)}
+                 value={newRfidId}
+                 onChange={(e) => setNewRfidId(e.currentTarget.value)}
                 />
               </div>
             </div>
@@ -1198,8 +1375,9 @@ export default function App() {
                         <p className="text-sm text-gray-600">
                           Total Inquiries
                         </p>
+                        {/* Replace the hardcoded number with the array length */}
                         <p className="text-2xl font-semibold">
-                          156
+                          {studentAppointments.length}
                         </p>
                       </div>
                     </div>
@@ -1233,16 +1411,8 @@ export default function App() {
                     <CardTitle>Faculty Members</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    {/* Faculty loading/error */}
-                    {facultyLoading && (
-                      <div className="flex items-center justify-center py-8 text-gray-600">Loading faculty...</div>
-                    )}
-                    {facultyError && (
-                      <div className="flex items-center justify-center py-8 text-red-600">{facultyError}</div>
-                    )}
-                    {!facultyLoading && !facultyError && (
-                      <div className="space-y-4">
-                        {facultyMembers.map((faculty) => (
+                    <div className="space-y-4">
+                      {facultyMembers.map((faculty) => (
                         <div
                           key={faculty.id}
                           className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1252,7 +1422,9 @@ export default function App() {
                               {faculty.photoUrl ? (
                                 <AvatarImage src={faculty.photoUrl} alt={faculty.name} />
                               ) : null}
-                              <AvatarFallback className={`${faculty.color} text-white`}>
+                              <AvatarFallback
+                                className={`${faculty.color} text-white`}
+                              >
                                 {faculty.initials}
                               </AvatarFallback>
                             </Avatar>
@@ -1269,25 +1441,27 @@ export default function App() {
                                   className={`w-2 h-2 rounded-full ${
                                     faculty.status === "Online"
                                       ? "bg-green-500"
-                                      : faculty.status === "Busy"
-                                      ? "bg-yellow-500"
-                                      : "bg-gray-400"
+                                      : faculty.status ===
+                                          "Busy"
+                                        ? "bg-yellow-500"
+                                        : "bg-gray-400"
                                   }`}
                                 ></div>
                                 <span className="text-sm font-medium">
                                   {faculty.status}
                                 </span>
                               </div>
-                              <p className="text-xs text-gray-500">Pending</p>
+                              <p className="text-xs text-gray-500">
+                                {faculty.lastSeen}
+                              </p>
                             </div>
                             <Button
                               variant="outline"
                               size="sm"
                               disabled={!user}
-                              title={!user ? 'Login required to request a meeting' : undefined}
                               onClick={() =>
                                 handleMeetingRequest(
-                                  faculty.name,
+                                  faculty,
                                 )
                               }
                             >
@@ -1295,9 +1469,8 @@ export default function App() {
                             </Button>
                           </div>
                         </div>
-                        ))}
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -1311,50 +1484,57 @@ export default function App() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {appointmentHistory.map((appointment) => (
-                        <div
-                          key={appointment.id}
-                          className="flex flex-col gap-3 p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-blue-100 rounded-lg">
-                              <Calendar className="w-4 h-4 text-blue-600" />
-                            </div>
-                            <div className="flex-1">
-                              <h4 className="font-medium text-gray-900">
-                                {appointment.studentName}
-                              </h4>
-                              <p className="text-sm text-gray-500">
-                                ID: {appointment.studentId}
-                              </p>
-                            </div>
-                            <Badge
-                              variant="secondary"
-                              className="bg-green-100 text-green-700"
-                            >
-                              {appointment.status}
-                            </Badge>
-                          </div>
-                          <div className="flex justify-between text-sm">
-                            <div>
-                              <p className="font-medium text-gray-900">
-                                {appointment.faculty}
-                              </p>
-                              <p className="text-gray-500">
-                                Faculty
-                              </p>
-                            </div>
-                            <div className="text-right">
-                              <p className="font-medium text-gray-900">
-                                {appointment.date}
-                              </p>
-                              <p className="text-gray-500">
-                                {appointment.time}
-                              </p>
-                            </div>
+                      {appointmentLoading ? (
+                        <div className="flex items-center justify-center py-8">
+                          <div className="flex items-center gap-2 text-gray-600">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                            <span>Loading appointments...</span>
                           </div>
                         </div>
-                      ))}
+                      ) : studentAppointments.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                          <p>No appointment history</p>
+                          <p className="text-sm mt-1">Your appointments will appear here</p>
+                        </div>
+                      ) : (
+                        studentAppointments.slice(0, 6).map((appointment) => (
+                          <div
+                            key={appointment.id}
+                            className="flex flex-col gap-3 p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 bg-blue-100 rounded-lg">
+                                <Calendar className="w-4 h-4 text-blue-600" />
+                              </div>
+                              <div className="flex-1">
+                                <h4 className="font-medium text-gray-900">
+                                  {appointment.teacherName}
+                                </h4>
+                                <p className="text-sm text-gray-500">
+                                  {formatAppointmentDate(appointment.createdAt)}
+                                </p>
+                              </div>
+                              <Badge
+                                variant="secondary"
+                                className={getAppointmentStatusColor(appointment.status)}
+                              >
+                                {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                              </Badge>
+                            </div>
+                            {appointment.studentNote && (
+                              <div className="text-sm text-gray-600 pl-11">
+                                Note: {appointment.studentNote}
+                              </div>
+                            )}
+                            {appointment.teacherResponse && (
+                              <div className="text-sm text-blue-600 pl-11">
+                                Response: {appointment.teacherResponse}
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
                     </div>
                   </CardContent>
                 </Card>

@@ -334,8 +334,9 @@ export default function App() {
           toast.error(`RFID Error: ${msg.message || 'Unknown error occurred'}`);
         }
         
-        // Keep dialog open so user can try again
-        // Don't close the dialog on error
+        
+        setIsAddRfidPopupOpen(false);
+        espWebSocket.setAddRfidDialogState(false);
       }
     };
     
@@ -1442,7 +1443,7 @@ export default function App() {
                         <div className="text-center py-8 text-gray-500">
                           <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
                           <p>No appointment history</p>
-                          <p className="text-sm mt-1">Your appointments will appear here</p>
+                          <p className="text-sm mt-1">Student appointments will appear here</p>
                         </div>
                       ) : (
                         studentAppointments.slice(0, 6).map((appointment) => (

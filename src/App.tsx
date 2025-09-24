@@ -529,36 +529,66 @@ export default function App() {
     if (!date) return 'Unknown';
     const dateObj = date instanceof Date ? date : new Date(date);
     if (isNaN(dateObj.getTime())) return 'Unknown';
+
     const now = new Date();
-    const diffMs = now.getTime() - dateObj.getTime();
-    const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-    
-    if (days === 0) {
-      const hours = Math.floor(diffMs / (1000 * 60 * 60));
-      if (hours === 0) {
-        const minutes = Math.floor(diffMs / (1000 * 60));
-        return minutes <= 1 ? 'Just now' : `${minutes} minutes ago`;
-      }
-      return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
-    } else if (days === 1) {
-      return 'Yesterday';
-    } else if (days < 7) {
-      return `${days} days ago`;
-    } else {
-      return dateObj.toLocaleDateString();
+    const seconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
+
+    // Handle the case where the client's clock is slightly behind the server
+    if (seconds < 0) return 'Just now';
+
+    if (seconds < 60) {
+      return 'Just now';
     }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return minutes === 1 ? '1 minute ago' : `${minutes} minutes ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+    }
+    const days = Math.floor(hours / 24);
+    if (days === 1) {
+      return 'Yesterday';
+    }
+    if (days < 7) {
+      return `${days} days ago`;
+    }
+    return dateObj.toLocaleDateString();
   };
 
-  const handleSubmitMeetingRequest = () => {
-    if (studentNumber && studentNumber.length === 6) {
-      alert(
-        `Meeting request submitted for ${selectedFaculty}! Student Number: ${studentNumber}`,
-      );
-      setMeetingRequestOpen(false);
-      setStudentNumber("");
-      setSelectedFaculty("");
+  const formatAppointmentStatus = (appointment: any): string => {
+    const status = appointment.status || 'unknown';
+    // The teacherAction field is added by the teacher's app when they respond
+    const action = appointment.teacherAction || '';
+
+    if (status === 'accepted') {
+      switch (action) {
+        case 'meetNow':
+          return 'Meet Now';
+        case 'wait5Minutes':
+          return 'Wait 5 Min';
+        case 'meetLater':
+          return 'Scheduled';
+        default:
+          return 'Accepted'; // Fallback if no specific action is found
+      }
     }
+
+    // For other statuses like 'pending', 'denied', etc., just capitalize the first letter
+    return status.charAt(0).toUpperCase() + status.slice(1);
   };
+
+  // const handleSubmitMeetingRequest = () => {
+  //   if (studentNumber && studentNumber.length === 6) {
+  //     alert(
+  //       `Meeting request submitted for ${selectedFaculty}! Student Number: ${studentNumber}`,
+  //     );
+  //     setMeetingRequestOpen(false);
+  //     setStudentNumber("");
+  //     setSelectedFaculty("");
+  //   }
+  // };
 
   const handleAdminLogin = async () => {
     if (!adminEmail || !adminPassword) {
@@ -795,9 +825,6 @@ export default function App() {
             {/* In offline mode, only show hardware settings */}
             {isFailsafeMode ? (
               <div className="space-y-2">
-                <div className="px-3 py-2 text-xs font-semibold text-red-600 uppercase tracking-wide">
-                  Offline Mode
-                </div>
                 <button
                   onClick={() => setCurrentPage("hardware")}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
@@ -868,22 +895,24 @@ export default function App() {
               <div className="flex items-center gap-3">
                 <h2 className="text-2xl font-semibold text-gray-900">
                   {isFailsafeMode 
-                    ? "Offline Mode"
+                    ? "Hardware Settings"
                     : isAdminLoggedIn
                     ? "Admin Dashboard"
                     : "Faculty Dashboard"}
                 </h2>
                 {/* WiFi Status Indicator */}
-                <div className="flex items-center gap-2">
-                  <div className={`w-2 h-2 rounded-full ${
-                    isFailsafeMode ? 'bg-amber-500' : wifiConnected ? 'bg-green-500' : 'bg-red-500'
-                  }`}></div>
-                  <span className={`text-xs font-medium ${
-                    isFailsafeMode ? 'text-amber-600' : wifiConnected ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {isFailsafeMode ? 'Standalone Mode' : wifiConnected ? 'Online' : 'Offline'}
-                  </span>
-                </div>
+                {!isFailsafeMode && (
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${
+                      wifiConnected ? 'bg-green-500' : 'bg-red-500'
+                    }`}></div>
+                    <span className={`text-xs font-medium ${
+                      wifiConnected ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      {wifiConnected ? 'Online' : 'Offline'}
+                    </span>
+                  </div>
+                )}
               </div>
               <p className="text-gray-600 mt-1">
                 {isFailsafeMode
@@ -1380,33 +1409,37 @@ export default function App() {
                               <h4 className="font-medium text-gray-900">
                                 {faculty.name}
                               </h4>
+                              {faculty.teacherMsg && (
+                              <p className="text-sm text-gray-500 italic mt-1">
+                                "{faculty.teacherMsg}"
+                              </p>
+                              )}
                             </div>
                           </div>
                           <div className="flex items-center gap-4">
-                            <div className="text-right">
-                              <div className="flex items-center gap-2">
-                                <div
+                          <div className="flex flex-col items-end">
+    {/* Top line: Status Dot and Text (No changes here) */}
+                          <div className="flex items-center gap-2">
+                              <div
                                   className={`w-2 h-2 rounded-full ${
-                                    faculty.status === "Online"
+                                  faculty.status === "Online"
                                       ? "bg-green-500"
-                                      : faculty.status ===
-                                          "Busy"
-                                        ? "bg-yellow-500"
-                                        : "bg-gray-400"
+                                      : faculty.status === "Busy"
+                                      ? "bg-yellow-500"
+                                      : "bg-gray-400"
                                   }`}
-                                ></div>
-                                <span className="text-sm font-medium">
-                                  {faculty.status}
-                                </span>
-                              </div>
-                              <p className="text-xs text-gray-500">
-                                {faculty.lastSeen}
+                              ></div>
+                              <span className="text-sm font-medium">{faculty.status}</span>
+                          </div>
+                            {/* Bottom line: Displays "time ago" or an invisible placeholder */}
+                              <p className="text-xs text-gray-500 h-4">
+                              {faculty.status !== "Online" ? faculty.lastSeen : ''}
                               </p>
-                            </div>
+                          </div>
                             <Button
                               variant="outline"
                               size="sm"
-                              disabled={!user}
+                              disabled={!user || faculty.status !== "Online"}
                               onClick={() =>
                                 handleMeetingRequest(
                                   faculty,
@@ -1456,8 +1489,11 @@ export default function App() {
                                 <Calendar className="w-4 h-4 text-blue-600" />
                               </div>
                               <div className="flex-1">
-                                <h4 className="font-medium text-gray-900">
-                                  {appointment.teacherName}
+                                {/* ✅ Display both student and teacher name */}
+                                <h4 className="font-medium text-gray-900 text-sm">
+                                    <span className="font-bold">{appointment.studentName || 'Unknown Student'}</span>
+                                    <span className="mx-2 font-normal text-gray-400">→</span>
+                                    <span>{appointment.teacherName}</span>
                                 </h4>
                                 <p className="text-sm text-gray-500">
                                   {formatAppointmentDate(appointment.createdAt)}
@@ -1467,7 +1503,8 @@ export default function App() {
                                 variant="secondary"
                                 className={getAppointmentStatusColor(appointment.status)}
                               >
-                                {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
+                                {/* ✅ Use the new detailed status formatter */}
+                                {formatAppointmentStatus(appointment)}
                               </Badge>
                             </div>
                             {appointment.studentNote && (
@@ -1609,9 +1646,16 @@ export default function App() {
                               {faculty.initials}
                             </AvatarFallback>
                           </Avatar>
-                          <h4 className="font-medium text-gray-900">
-                            {faculty.name}
-                          </h4>
+                          <div>
+                            <h4 className="font-medium text-gray-900">
+                              {faculty.name}
+                            </h4>
+                            {faculty.teacherMsg && (
+                              <p className="text-sm text-gray-500 italic mt-1">
+                                "{faculty.teacherMsg}"
+                              </p>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-8">
                           <div className="text-center">
@@ -2044,23 +2088,6 @@ export default function App() {
           {/* === Admin Hardware Settings (only for admin when currentPage === "hardware") === */}
           {(isAdminLoggedIn || isFailsafeMode) && currentPage === "hardware" && (
             <>
-              {/* Offline Mode Banner */}
-              {isFailsafeMode && (
-                <div className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
-                  <div className="flex items-center">
-                    <div className="flex-shrink-0">
-                      <Settings className="w-5 h-5 text-amber-600" />
-                    </div>
-                    <div className="ml-3">
-                      <h3 className="text-sm font-medium text-amber-800">Configuration Mode</h3>
-                      <p className="text-sm text-amber-700">
-                        Device is running in standalone mode. Configure network settings to enable online features.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <Card>
                 <CardHeader>
                   <CardTitle>ESP32 Hardware Settings</CardTitle>

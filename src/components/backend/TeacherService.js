@@ -11,6 +11,25 @@ class TeacherService {
     this.rfidTagsRaw = {}; // rfid_tags snapshot
   }
 
+  formatTimeAgo(timestamp) {
+    if (!timestamp) return ''; 
+    
+    const now = Date.now();
+    const seconds = Math.floor((now - parseInt(timestamp)) / 1000);
+
+    if (seconds < 30) return 'Just now';
+    if (seconds < 60) return `${seconds}s ago`;
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
   // Utility function to check if a timestamp is from today
   isToday(timestamp) {
     if (!timestamp) return false;
@@ -89,16 +108,31 @@ class TeacherService {
     // Check if teacher is currently in (has entry but no exit today)
     const isCurrentlyIn = t?.today_first_entry && !t?.today_last_exit && this.isToday(t?.today_first_entry);
 
+    let relevantTimestamp = null;
+    const status = (t?.active_status || 'offline').toLowerCase();
+    
+    // Logic mirrored from your Flutter app's teacher_service.dart
+    if ((status === 'online' || status === 'busy') && t?.status_changed_at) {
+      relevantTimestamp = t.status_changed_at;
+    } else if (status === 'offline' && t?.last_exit_time) {
+      relevantTimestamp = t.last_exit_time;
+    } else if (status === 'online' && t?.last_entry_time) {
+      relevantTimestamp = t.last_entry_time;
+    }
+
+    const lastSeen = this.formatTimeAgo(relevantTimestamp);
+    
     return {
       id: key,
       name: displayName,
       email: t?.email || '',
       teacherID: t?.teacherID || key,
+      teacherMsg: t?.teacher_msg || '',
       rfid: t?.rfid_uid || '--',
       rfidInfo: assignedRfidInfo, // Add detailed RFID info
       status: normalizedStatus,
       isActive: active,
-      lastSeen: 'Pending',
+      lastSeen: lastSeen,
       timeIn: formatTime(firstTimeIn),
       timeOut: formatTime(lastTimeOut),
       // Add raw timestamp data for debugging/advanced use
@@ -106,7 +140,8 @@ class TeacherService {
         today_first_entry: t?.today_first_entry,
         today_last_exit: t?.today_last_exit,
         last_entry_time: t?.last_entry_time,
-        last_exit_time: t?.last_exit_time
+        last_exit_time: t?.last_exit_time,
+        status_changed_at: t?.status_changed_at,
       },
       // Additional time tracking info
       timeTracking: {

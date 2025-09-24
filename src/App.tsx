@@ -69,62 +69,8 @@ import {
 //   last_exit_time?: number     // timestamp of most recent exit
 // }
 
-const appointmentHistory = [
-  {
-    id: 1,
-    studentName: "John Smith",
-    studentId: "STU-001",
-    faculty: "Prof. Santos",
-    date: "2024-01-15",
-    time: "2:00 PM",
-    status: "Completed",
-  },
-  {
-    id: 2,
-    studentName: "Maria Garcia",
-    studentId: "STU-002",
-    faculty: "Prof. Kim",
-    date: "2024-01-14",
-    time: "10:30 AM",
-    status: "Completed",
-  },
-  {
-    id: 3,
-    studentName: "David Lee",
-    studentId: "STU-003",
-    faculty: "Prof. Cruz",
-    date: "2024-01-14",
-    time: "3:15 PM",
-    status: "Completed",
-  },
-  {
-    id: 4,
-    studentName: "Sarah Johnson",
-    studentId: "STU-004",
-    faculty: "Prof. Gonzales",
-    date: "2024-01-13",
-    time: "11:00 AM",
-    status: "Completed",
-  },
-  {
-    id: 5,
-    studentName: "Michael Brown",
-    studentId: "STU-005",
-    faculty: "Prof. Joe",
-    date: "2024-01-12",
-    time: "1:45 PM",
-    status: "Completed",
-  },
-  {
-    id: 6,
-    studentName: "Emily Davis",
-    studentId: "STU-006",
-    faculty: "Prof. Balbin",
-    date: "2024-01-12",
-    time: "4:00 PM",
-    status: "Completed",
-  },
-];
+
+
 
 export default function App() {
   const [studentLoginOpen, setStudentLoginOpen] =
@@ -152,6 +98,7 @@ export default function App() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] =
     useState(false);
   const [isAddRfidPopupOpen, setIsAddRfidPopupOpen] = useState(false);
+
 
   // Hardware settings states
   const [ssid, setSsid] = useState("");

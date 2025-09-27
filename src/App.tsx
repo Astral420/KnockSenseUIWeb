@@ -11,6 +11,7 @@ import {
   Trash2,
   LogOut,
   CreditCard,
+  Smartphone,
 } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
@@ -437,10 +438,10 @@ export default function App() {
         setIsStudentLoginLoading(false);
         toast.error(msg);
       } else {
-        const errorMessage = 'Failed to login with Microsoft. Please try again.';
+      const errorMessage = 'Failed to login with Microsoft. Please try again.';
         setIsStudentLoginLoading(false);
-        toast.error(errorMessage);
-        console.error('Student login error:', error);
+      toast.error(errorMessage);
+      console.error('Student login error:', error);
       }
     } finally {
       setIsStudentLoginLoading(false);
@@ -839,46 +840,46 @@ export default function App() {
               </div>
             ) : (
               <>
-                <button
-                  onClick={() => setCurrentPage("dashboard")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                    currentPage === "dashboard"
-                      ? "bg-blue-50 text-blue-700"
-                      : "hover:bg-gray-100 text-gray-700"
-                  }`}
-                >
-                  <Home className="w-5 h-5" />
-                  Dashboard
-                </button>
+            <button
+              onClick={() => setCurrentPage("dashboard")}
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                currentPage === "dashboard"
+                  ? "bg-blue-50 text-blue-700"
+                  : "hover:bg-gray-100 text-gray-700"
+              }`}
+            >
+              <Home className="w-5 h-5" />
+              Dashboard
+            </button>
 
-                {/* Show only if Admin is logged in */}
+            {/* Show only if Admin is logged in */}
                 {isAdminLoggedIn && (
-                  <button
-                    onClick={() => setCurrentPage("rfid")}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                      currentPage === "rfid"
-                        ? "bg-blue-50 text-blue-700"
-                        : "hover:bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    <CreditCard className="w-5 h-5" />
-                    RFID Management
-                  </button>
-                )}
+              <button
+                onClick={() => setCurrentPage("rfid")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                  currentPage === "rfid"
+                    ? "bg-blue-50 text-blue-700"
+                    : "hover:bg-gray-100 text-gray-700"
+                }`}
+              >
+                <CreditCard className="w-5 h-5" />
+                RFID Management
+              </button>
+            )}
 
                 {/* Hardware Settings Button */}
-                {isAdminLoggedIn && (
-                  <button
-                    onClick={() => setCurrentPage("hardware")}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
-                      currentPage === "hardware"
-                        ? "bg-blue-50 text-blue-700"
-                        : "hover:bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    <Settings className="w-5 h-5" />
-                    Hardware Settings
-                  </button>
+            {isAdminLoggedIn && (
+              <button
+                onClick={() => setCurrentPage("hardware")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                  currentPage === "hardware"
+                    ? "bg-blue-50 text-blue-700"
+                    : "hover:bg-gray-100 text-gray-700"
+                }`}
+              >
+                <Settings className="w-5 h-5" />
+                Hardware Settings
+              </button>
                 )}
               </>
             )}
@@ -893,13 +894,13 @@ export default function App() {
           <div className="flex items-center justify-between">
             <div>
               <div className="flex items-center gap-3">
-                <h2 className="text-2xl font-semibold text-gray-900">
+              <h2 className="text-2xl font-semibold text-gray-900">
                   {isFailsafeMode 
                     ? "Hardware Settings"
                     : isAdminLoggedIn
-                    ? "Admin Dashboard"
-                    : "Faculty Dashboard"}
-                </h2>
+                  ? "Admin Dashboard"
+                  : "Faculty Dashboard"}
+              </h2>
                 {/* WiFi Status Indicator */}
                 {!isFailsafeMode && (
                   <div className="flex items-center gap-2">
@@ -926,168 +927,108 @@ export default function App() {
               {/* Show login buttons only when NOT in offline mode */}
               {!isFailsafeMode && (
                 <>
-                  {isAdminLoggedIn && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleLogout}
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Logout
-                    </Button>
-                  )}
-                  {!isAdminLoggedIn && user && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-sm text-gray-700 font-medium">
-                        {user.displayName || user.email}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleLogout}
-                      >
-                        <LogOut className="w-4 h-4 mr-2" />
-                        Logout
-                      </Button>
-                    </div>
-                  )}
-                  {!isAdminLoggedIn && !user && (
-                    <>
-                      <Dialog
-                        open={studentLoginOpen}
-                        onOpenChange={(open) => {
-                          setStudentLoginOpen(open);
-                          if (!open) {
-                            setLoginError(''); // Clear error when dialog closes
+              {isAdminLoggedIn && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleLogout}
+                >
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Logout
+                </Button>
+              )}
+              {!isAdminLoggedIn && user && (
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-gray-700 font-medium">
+                    {user.displayName || user.email}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLogout}
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
+                </div>
+              )}
+              {!isAdminLoggedIn && !user && (
+                <>
+                  <Dialog
+                    open={adminLoginOpen}
+                    onOpenChange={setAdminLoginOpen}
+                  >
+                    <DialogTrigger asChild>
+                      <Button size="sm">Admin Login</Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[425px]">
+                      <DialogHeader>
+                        <DialogTitle>Admin Login</DialogTitle>
+                        <DialogDescription>
+                          Please enter your admin credentials to
+                          access the management panel.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        {loginError && (
+                          <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
+                            {loginError}
+                          </div>
+                        )}
+                        <div className="grid gap-2">
+                          <Label htmlFor="adminEmail">
+                            Email
+                          </Label>
+                          <Input
+                            id="adminEmail"
+                            placeholder="Enter admin Email"
+                            value={adminEmail}
+                            onChange={(e) => {
+                              setAdminEmail(e.target.value);
+                              if (loginError) setLoginError(''); // Clear error when user starts typing
+                            }}
+                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="adminPassword">
+                            Password
+                          </Label>
+                          <Input
+                            id="adminPassword"
+                            type="password"
+                            placeholder="Enter admin password"
+                            value={adminPassword}
+                            onChange={(e) => {
+                              setAdminPassword(e.target.value);
+                              if (loginError) setLoginError(''); // Clear error when user starts typing
+                            }}
+                            className={loginError ? "border-red-300 focus:border-red-500" : ""}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() =>
+                            setAdminLoginOpen(false)
                           }
-                        }}
-                      >
-                        <DialogTrigger asChild>
-                          <Button variant="outline" size="sm">
-                            Student Login
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                          <DialogHeader>
-                            <DialogTitle>Student Login</DialogTitle>
-                            <DialogDescription>
-                              Sign in with your Office 365 account to access faculty services.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-6">
-                             <Button
-                               onClick={handleOffice365Login}
-                               variant="outline"
-                               className="w-full flex items-center gap-3 h-12"
-                               disabled={isStudentLoginLoading}
-                             >
-                              {isStudentLoginLoading ? (
-                                <>
-                                  <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                                  <span>Signing in...</span>
-                                </>
-                              ) : (
-                                <>
-                                    <svg
-                                      className="w-5 h-5"
-                                      viewBox="0 0 21 21"
-                                      fill="none"
-                                      xmlns="http://www.w3.org/2000/svg"
-                                    >
-                                      <rect x="1" y="1" width="9" height="9" fill="#f25022" /> 
-                                      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
-                                      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
-                                      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
-                                    </svg>
-                                  Log in with Office 365
-                                </>
-                              )}
-                            </Button>
-                            
-                            <div className="text-center">
-                              <p className="text-xs text-gray-500">
-                                By signing in, you agree to our terms of service and privacy policy.
-                              </p>
-                            </div>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                      
-                      <Dialog
-                        open={adminLoginOpen}
-                        onOpenChange={setAdminLoginOpen}
-                      >
-                        <DialogTrigger asChild>
-                          <Button size="sm">Admin Login</Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[425px]">
-                          <DialogHeader>
-                            <DialogTitle>Admin Login</DialogTitle>
-                            <DialogDescription>
-                              Please enter your admin credentials to
-                              access the management panel.
-                            </DialogDescription>
-                          </DialogHeader>
-                          <div className="grid gap-4 py-4">
-                            {loginError && (
-                              <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
-                                {loginError}
-                              </div>
-                            )}
-                            <div className="grid gap-2">
-                              <Label htmlFor="adminEmail">
-                                Email
-                              </Label>
-                              <Input
-                                id="adminEmail"
-                                placeholder="Enter admin Email"
-                                value={adminEmail}
-                                onChange={(e) => {
-                                  setAdminEmail(e.target.value);
-                                  if (loginError) setLoginError(''); // Clear error when user starts typing
-                                }}
-                                className={loginError ? "border-red-300 focus:border-red-500" : ""}
-                              />
-                            </div>
-                            <div className="grid gap-2">
-                              <Label htmlFor="adminPassword">
-                                Password
-                              </Label>
-                              <Input
-                                id="adminPassword"
-                                type="password"
-                                placeholder="Enter admin password"
-                                value={adminPassword}
-                                onChange={(e) => {
-                                  setAdminPassword(e.target.value);
-                                  if (loginError) setLoginError(''); // Clear error when user starts typing
-                                }}
-                                className={loginError ? "border-red-300 focus:border-red-500" : ""}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              onClick={() =>
-                                setAdminLoginOpen(false)
-                              }
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              onClick={handleAdminLogin}
-                              disabled={
-                                !adminEmail || !adminPassword
-                              }
-                            >
-                              Login
-                            </Button>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    </>
-                  )}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          onClick={handleAdminLogin}
+                          disabled={
+                            !adminEmail || !adminPassword
+                          }
+                        >
+                          Login
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </>
+              )}
                 </>
               )}
               
@@ -1108,35 +1049,35 @@ export default function App() {
         <Dialog
         open={requestMeetingDialogOpen}
         onOpenChange={setRequestMeetingDialogOpen}
-      >
+        >
         <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
+            <DialogHeader>
             <DialogTitle>Request Meeting with {selectedFacultyForMeeting?.name}</DialogTitle>
-            <DialogDescription>
+              <DialogDescription>
               Enter your student number for verification and add an optional note for the faculty member.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
             {appointmentError && (
               <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-md">
                 {appointmentError}
               </div>
             )}
             
-            <div className="grid gap-2">
+              <div className="grid gap-2">
               <Label htmlFor="verificationNumber">
                 Student Number (Required for verification)
-              </Label>
-              <Input
+                </Label>
+                <Input
                 id="verificationNumber"
                 placeholder="Enter your 6-digit student number"
                 value={verificationStudentNumber}
-                onChange={(e) => {
+                  onChange={(e) => {
                   const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                   setVerificationStudentNumber(value);
                   setAppointmentError('');
-                }}
-                maxLength={6}
+                  }}
+                  maxLength={6}
                 disabled={appointmentLoading}
               />
               <p className="text-xs text-gray-500">
@@ -1157,11 +1098,11 @@ export default function App() {
                onChange={(e) => setAppointmentNote(e.currentTarget.value)}
                 disabled={appointmentLoading}
               />
+              </div>
             </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
               onClick={() => {
                 setRequestMeetingDialogOpen(false);
                 setVerificationStudentNumber('');
@@ -1169,10 +1110,10 @@ export default function App() {
                 setAppointmentError('');
               }}
               disabled={appointmentLoading}
-            >
-              Cancel
-            </Button>
-            <Button
+              >
+                Cancel
+              </Button>
+              <Button
               onClick={handleSubmitAppointment}
               disabled={!verificationStudentNumber || verificationStudentNumber.length !== 6 || appointmentLoading}
             >
@@ -1184,10 +1125,10 @@ export default function App() {
               ) : (
                 'Submit Request'
               )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* RFID Assignment Dialog */}
         <Dialog
@@ -1208,7 +1149,7 @@ export default function App() {
                 <Input
                   id="newRfidId"
                   placeholder="Enter RFID ID"
-                 value={newRfidId}
+                  value={newRfidId}
                  onChange={(e) => setNewRfidId(e.currentTarget.value)}
                 />
               </div>
@@ -1345,16 +1286,15 @@ export default function App() {
                 <Card>
                   <CardContent className="p-6">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 bg-blue-100 rounded-lg">
-                        <Bell className="w-6 h-6 text-blue-600" />
+                      <div className="p-3 bg-red-100 rounded-lg">
+                        <Users className="w-6 h-6 text-red-600" />
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">
-                          Total Inquiries
+                          Offline Faculty
                         </p>
-                        {/* Replace the hardcoded number with the array length */}
                         <p className="text-2xl font-semibold">
-                          {studentAppointments.length}
+                          {facultyMembers.filter((f) => f.status === "Offline").length}
                         </p>
                       </div>
                     </div>
@@ -1388,8 +1328,8 @@ export default function App() {
                     <CardTitle>Faculty Members</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {facultyMembers.map((faculty) => (
+                      <div className="space-y-4">
+                        {facultyMembers.map((faculty) => (
                         <div
                           key={faculty.id}
                           className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1419,39 +1359,27 @@ export default function App() {
                           <div className="flex items-center gap-4">
                           <div className="flex flex-col items-end">
     {/* Top line: Status Dot and Text (No changes here) */}
-                          <div className="flex items-center gap-2">
-                              <div
+                              <div className="flex items-center gap-2">
+                                <div
                                   className={`w-2 h-2 rounded-full ${
-                                  faculty.status === "Online"
+                                    faculty.status === "Online"
                                       ? "bg-green-500"
                                       : faculty.status === "Busy"
                                       ? "bg-yellow-500"
                                       : "bg-gray-400"
                                   }`}
-                              ></div>
+                                ></div>
                               <span className="text-sm font-medium">{faculty.status}</span>
-                          </div>
+                              </div>
                             {/* Bottom line: Displays "time ago" or an invisible placeholder */}
                               <p className="text-xs text-gray-500 h-4">
                               {faculty.status !== "Online" ? faculty.lastSeen : ''}
                               </p>
-                          </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!user || faculty.status !== "Online"}
-                              onClick={() =>
-                                handleMeetingRequest(
-                                  faculty,
-                                )
-                              }
-                            >
-                              Req. Meeting
-                            </Button>
-                          </div>
+                            </div>
+                            </div>
                         </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
                   </CardContent>
                 </Card>
 
@@ -1459,67 +1387,17 @@ export default function App() {
                 <Card>
                   <CardHeader>
                     <div className="flex items-center gap-3">
-                      <Calendar className="w-5 h-5 text-blue-600" />
-                      <CardTitle>Appointment History</CardTitle>
+                      <Smartphone className="w-5 h-5 text-blue-600" />
+                      <CardTitle>Get the Mobile App</CardTitle>
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {appointmentLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <div className="flex items-center gap-2 text-gray-600">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                            <span>Loading appointments...</span>
-                          </div>
-                        </div>
-                      ) : studentAppointments.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500">
-                          <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                          <p>No appointment history</p>
-                          <p className="text-sm mt-1">Student appointments will appear here</p>
-                        </div>
-                      ) : (
-                        studentAppointments.slice(0, 6).map((appointment) => (
-                          <div
-                            key={appointment.id}
-                            className="flex flex-col gap-3 p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-blue-100 rounded-lg">
-                                <Calendar className="w-4 h-4 text-blue-600" />
-                              </div>
-                              <div className="flex-1">
-                                {/* ✅ Display both student and teacher name */}
-                                <h4 className="font-medium text-gray-900 text-sm">
-                                    <span className="font-bold">{appointment.studentName || 'Unknown Student'}</span>
-                                    <span className="mx-2 font-normal text-gray-400">→</span>
-                                    <span>{appointment.teacherName}</span>
-                                </h4>
-                                <p className="text-sm text-gray-500">
-                                  {formatAppointmentDate(appointment.createdAt)}
-                                </p>
-                              </div>
-                              <Badge
-                                variant="secondary"
-                                className={getAppointmentStatusColor(appointment.status)}
-                              >
-                                {/* ✅ Use the new detailed status formatter */}
-                                {formatAppointmentStatus(appointment)}
-                              </Badge>
-                            </div>
-                            {appointment.studentNote && (
-                              <div className="text-sm text-gray-600 pl-11">
-                                Note: {appointment.studentNote}
-                              </div>
-                            )}
-                            {appointment.teacherResponse && (
-                              <div className="text-sm text-blue-600 pl-11">
-                                Response: {appointment.teacherResponse}
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      )}
+                    <div className="flex flex-col items-center justify-center py-10 text-center">
+                      <div className="w-40 h-40 bg-gray-100 border border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                        <div className="w-28 h-28 bg-gray-200"></div>
+                      </div>
+                      <h4 className="mt-4 text-lg font-medium text-gray-900">Download the KnockSense App</h4>
+                      <p className="mt-1 text-sm text-gray-600 max-w-sm">Scan the QR code with your phone to download our mobile app to be able to schedule appointments.</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -1647,9 +1525,9 @@ export default function App() {
                             </AvatarFallback>
                           </Avatar>
                           <div>
-                            <h4 className="font-medium text-gray-900">
-                              {faculty.name}
-                            </h4>
+                          <h4 className="font-medium text-gray-900">
+                            {faculty.name}
+                          </h4>
                             {faculty.teacherMsg && (
                               <p className="text-sm text-gray-500 italic mt-1">
                                 "{faculty.teacherMsg}"

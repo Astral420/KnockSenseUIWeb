@@ -70,7 +70,24 @@ import {
 //   last_exit_time?: number     // timestamp of most recent exit
 // }
 
+// Debounce hook to delay processing of the search input
+export function useDebounce<T>(value: T, delay?: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
+  useEffect(() => {
+    // Set debouncedValue to value (passed in) after the specified delay
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay || 500); // 500ms default delay
+
+    // Return a cleanup function that will be called every time useEffect is re-called
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]); // Only re-call effect if value or delay changes
+
+  return debouncedValue;
+}
 
 
 export default function App() {
@@ -91,6 +108,12 @@ export default function App() {
   const [facultyMembers, setFacultyMembers] = useState<any[]>([]);
   const [facultyLoading, setFacultyLoading] = useState<boolean>(true);
   const [facultyError, setFacultyError] = useState<string>("");
+
+  // New state for search and filtering
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filteredFaculty, setFilteredFaculty] = useState<any[]>([]);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300); 
+
 
   const [newFacultyName, setNewFacultyName] = useState("");
   const [newRfidId, setNewRfidId] = useState("");
@@ -332,6 +355,21 @@ export default function App() {
       return () => rfidService.unsubscribeFromRFIDTags(handleTags);
     }
   }, [authLoading, isAdminLoggedIn]);
+
+  // useEffect for handling faculty search filtering
+  useEffect(() => {
+    // If there's no search query, show all faculty members
+    if (!debouncedSearchQuery) {
+      setFilteredFaculty(facultyMembers);
+    } else {
+      // Filter the faculty members based on the debounced search query
+      const lowercasedQuery = debouncedSearchQuery.toLowerCase();
+      const filtered = facultyMembers.filter((faculty) =>
+        faculty.name.toLowerCase().includes(lowercasedQuery)
+      );
+      setFilteredFaculty(filtered);
+    }
+  }, [debouncedSearchQuery, facultyMembers]); // Re-run when the debounced query or the main faculty list changes
 
 
   useEffect(() => {
@@ -1344,6 +1382,8 @@ export default function App() {
                     <Input
                       placeholder="Search faculty members..."
                       className="pl-10"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
                 </CardContent>
@@ -1437,7 +1477,7 @@ export default function App() {
                   </CardHeader>
                   <CardContent>
                       <div className="space-y-4">
-                        {facultyMembers.map((faculty) => (
+                        {filteredFaculty.map((faculty) => (
                         <div
                           key={faculty.id}
                           className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"

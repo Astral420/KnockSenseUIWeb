@@ -99,18 +99,69 @@ export default function App() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] =
     useState(false);
   const [isAddRfidPopupOpen, setIsAddRfidPopupOpen] = useState(false);
-
+  const [installInstructionsOpen, setInstallInstructionsOpen] = useState(false);
 
   // Hardware settings states
   const [ssid, setSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [isConnected, setIsConnected] = useState(false);
   const [backupBatteryPercent, setBackupBatteryPercent] = useState<number | null>(null);
+  const [backupBatteryVoltage, setBackupBatteryVoltage] = useState<number | null>(null);
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [isStudentLoginLoading, setIsStudentLoginLoading] = useState(false);
+  
+  // Admin login timeout states
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState(0);
+  const [isLoginBlocked, setIsLoginBlocked] = useState(false);
+  const [blockedUntil, setBlockedUntil] = useState<Date | null>(null);
+  
+  // Initialize timeout state from localStorage on component mount
+  useEffect(() => {
+    const savedTimeout = localStorage.getItem('adminLoginTimeout');
+    const savedAttempts = localStorage.getItem('adminLoginAttempts');
+    
+    if (savedTimeout && savedAttempts) {
+      const timeoutDate = new Date(parseInt(savedTimeout));
+      const attempts = parseInt(savedAttempts);
+      
+      if (new Date() < timeoutDate) {
+        // Still in timeout period
+        setIsLoginBlocked(true);
+        setBlockedUntil(timeoutDate);
+        setFailedLoginAttempts(attempts);
+      } else {
+        // Timeout has expired, clear localStorage
+        localStorage.removeItem('adminLoginTimeout');
+        localStorage.removeItem('adminLoginAttempts');
+        setIsLoginBlocked(false);
+        setBlockedUntil(null);
+        setFailedLoginAttempts(0);
+      }
+    }
+  }, []);
+  
+  // Check if login timeout has expired
+  useEffect(() => {
+    if (isLoginBlocked && blockedUntil) {
+      const interval = setInterval(() => {
+        if (new Date() >= blockedUntil) {
+          setIsLoginBlocked(false);
+          setBlockedUntil(null);
+          setFailedLoginAttempts(0);
+          setLoginError('');
+          // Clear localStorage when timeout expires
+          localStorage.removeItem('adminLoginTimeout');
+          localStorage.removeItem('adminLoginAttempts');
+        }
+      }, 1000); // Check every second
+      
+      return () => clearInterval(interval);
+    }
+  }, [isLoginBlocked, blockedUntil]);
+  
   const [rfidTags, setRfidTags] = useState([]);
   const [rfidLoading, setRfidLoading] = useState(true);
   const [rfidError, setRfidError] = useState('');
@@ -295,8 +346,12 @@ export default function App() {
         } else if (typeof msg.battery_percent === 'number') {
           setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.battery_percent))));
         }
+
+        // + ADD LOGIC TO UPDATE BATTERY VOLTAGE
+        if (typeof msg.battery_voltage === 'number') {
+          setBackupBatteryVoltage(parseFloat(msg.battery_voltage.toFixed(2)));
+        }
       }
-     
     };
   
     espWebSocket.addMessageHandler(handler);
@@ -597,24 +652,77 @@ export default function App() {
       return;
     }
     
+    // Check if login is blocked
+    if (isLoginBlocked && blockedUntil && new Date() < blockedUntil) {
+      const remainingMinutes = Math.ceil((blockedUntil.getTime() - new Date().getTime()) / (1000 * 60));
+      setLoginError(`Too many failed attempts. Please try again in ${remainingMinutes} minutes.`);
+      return;
+    }
+    
     setLoginError('');
     try {
       const result = await authService.loginAdmin(adminEmail, adminPassword);
       if (result.success) {
+        // Reset failed attempts on successful login
+        setFailedLoginAttempts(0);
+        setIsLoginBlocked(false);
+        setBlockedUntil(null);
         setAdminLoginOpen(false);
         setAdminEmail("");
         setAdminPassword("");
         toast.success("Admin login successful!");
+        
+        // Clear localStorage on successful login
+        localStorage.removeItem('adminLoginTimeout');
+        localStorage.removeItem('adminLoginAttempts');
         // isAdminLoggedIn will be set by the auth state observer
       } else {
-        const errorMessage = result.error || 'Login failed';
-        setLoginError(errorMessage);
-        toast.error(`Login failed: ${errorMessage}`);
+        const newFailedAttempts = failedLoginAttempts + 1;
+        setFailedLoginAttempts(newFailedAttempts);
+        
+        if (newFailedAttempts >= 3) {
+          // Block login for 10 minutes
+          const blockUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+          setIsLoginBlocked(true);
+          setBlockedUntil(blockUntil);
+          setLoginError('Too many failed attempts. Admin login is blocked for 10 minutes.');
+          toast.error('Too many failed attempts. Admin login is blocked for 10 minutes.');
+          
+          // Save to localStorage to persist across page refreshes
+          localStorage.setItem('adminLoginTimeout', blockUntil.getTime().toString());
+          localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+        } else {
+          const errorMessage = result.error || 'Login failed';
+          setLoginError(errorMessage);
+          toast.error(`Login failed: ${errorMessage}`);
+          
+          // Save failed attempts to localStorage even if less than 3
+          localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+        }
       }
     } catch (error) {
-      const errorMessage = 'Login failed - please try again';
-      setLoginError(errorMessage);
-      toast.error(errorMessage);
+      const newFailedAttempts = failedLoginAttempts + 1;
+      setFailedLoginAttempts(newFailedAttempts);
+      
+      if (newFailedAttempts >= 3) {
+        // Block login for 10 minutes
+        const blockUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+        setIsLoginBlocked(true);
+        setBlockedUntil(blockUntil);
+        setLoginError('Too many failed attempts. Admin login is blocked for 10 minutes.');
+        toast.error('Too many failed attempts. Admin login is blocked for 10 minutes.');
+        
+        // Save to localStorage to persist across page refreshes
+        localStorage.setItem('adminLoginTimeout', blockUntil.getTime().toString());
+        localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+      } else {
+        const errorMessage = 'Login failed - please try again';
+        setLoginError(errorMessage);
+        toast.error(errorMessage);
+        
+        // Save failed attempts to localStorage even if less than 3
+        localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+      }
     }
   };
 
@@ -1019,10 +1127,10 @@ export default function App() {
                         <Button
                           onClick={handleAdminLogin}
                           disabled={
-                            !adminEmail || !adminPassword
+                            !adminEmail || !adminPassword || isLoginBlocked
                           }
                         >
-                          Login
+                          {isLoginBlocked ? 'Login Blocked' : 'Login'}
                         </Button>
                       </div>
                     </DialogContent>
@@ -1393,11 +1501,41 @@ export default function App() {
                   </CardHeader>
                   <CardContent>
                     <div className="flex flex-col items-center justify-center py-10 text-center">
-                      <div className="w-40 h-40 bg-gray-100 border border-dashed border-gray-300 rounded-lg flex items-center justify-center">
-                        <div className="w-28 h-28 bg-gray-200"></div>
+                      <h4 className="text-lg font-medium text-gray-900 mb-4">Download the KnockSense App</h4>
+                      
+                      {/* QR Code Image Placeholder */}
+                      <div className="w-24 h-24 bg-white border-2 border-gray-300 rounded-lg flex items-center justify-center shadow-sm mb-4">
+                        <img 
+                          src="src/assets/qr_img.png" 
+                          alt="QR Code for KnockSense Mobile App"
+                          className="w-20 h-20 object-contain"
+                          onError={(e) => {
+                            // Fallback if image doesn't exist
+                            e.currentTarget.style.display = 'none';
+                            const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                            if (fallback) {
+                              fallback.style.display = 'flex';
+                            }
+                          }}
+                        />
+                        {/* Fallback pattern if image doesn't exist */}
+                        <div className="w-20 h-20 bg-gray-100 border border-gray-200 rounded flex items-center justify-center" style={{ display: 'none' }}>
+                          <div className="text-xs text-gray-500 text-center">
+                            QR Code<br/>1024x1024<br/>PNG
+                          </div>
+                        </div>
                       </div>
-                      <h4 className="mt-4 text-lg font-medium text-gray-900">Download the KnockSense App</h4>
-                      <p className="mt-1 text-sm text-gray-600 max-w-sm">Scan the QR code with your phone to download our mobile app to be able to schedule appointments.</p>
+                      
+                      <p className="text-sm text-gray-600 max-w-sm mb-16">Scan the QR code with your phone to download our mobile app to be able to schedule appointments.</p>
+                      
+                      <div className="mt-24">
+                        <Button 
+                          size="sm"
+                          onClick={() => setInstallInstructionsOpen(true)}
+                        >
+                          Instructions
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -2031,8 +2169,12 @@ export default function App() {
 
   {/* Battery Percentage */}
   <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
-  <div className="text-left">
-      <p className="text-sm font-medium text-gray-900">Battery Percentage</p>
+    <div className="text-left">
+      <p className="text-sm font-medium text-gray-900">Battery Status</p>
+      {/* + SHOW VOLTAGE IF AVAILABLE */}
+      <p className="text-xs text-gray-500">
+        {backupBatteryVoltage !== null ? `${backupBatteryVoltage}V` : '...'}
+      </p>
     </div>
     <div className="text-right">
       <p className="text-lg font-medium text-gray-900">
@@ -2047,6 +2189,91 @@ export default function App() {
           )}
         </main>
       </div>
+      
+      {/* Installation Instructions Dialog */}
+      <Dialog
+        open={installInstructionsOpen}
+        onOpenChange={setInstallInstructionsOpen}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Android Installation Instructions</DialogTitle>
+            <DialogDescription>
+              Follow these steps to install the KnockSense mobile app on your Android device.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  1
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Enable Unknown Sources</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Go to <strong>Settings → Security → Unknown Sources</strong> and enable it. 
+                    This allows installation of apps from sources other than Google Play Store.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  2
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Scan the QR Code</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Use your phone's camera or QR code scanner to scan the QR code above. 
+                    This will download the APK file to your device.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  3
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Install the APK</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Once downloaded, tap on the APK file in your Downloads folder and follow the installation prompts. 
+                    You may need to grant additional permissions during installation.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  4
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Launch the App</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    After installation, you can find the KnockSense app in your app drawer. 
+                    Tap to open and start scheduling appointments with your teachers.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-4">
+              <div className="flex items-start gap-2">
+                <div className="text-yellow-600 text-sm">⚠️</div>
+                <div className="text-sm text-yellow-800">
+                  <strong>Note:</strong> If you encounter any issues during installation, 
+                  make sure your device has enough storage space and that you have a stable internet connection.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setInstallInstructionsOpen(false)}>
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       {/* Toast Notifications */}
       <Toaster />

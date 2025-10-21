@@ -134,8 +134,11 @@ class AppointmentService {
   // Create a new appointment
   async createAppointment(studentData, teacherData, studentNote = null) {
     try {
-      const { studentNumber, displayName: studentName, uid: studentUid, photoUrl: studentPhotoUrl } = studentData;
+      const { studentNumber, displayName: rawStudentName, uid: studentUid, photoUrl: studentPhotoUrl } = studentData;
       const { uid: teacherUid, name: teacherName, photoUrl: teacherPhotoUrl } = teacherData;
+      
+      // Remove (Student) suffix from student name using regex
+      const studentName = rawStudentName.replace(/\s*\(.*?\)/, '');
 
       // Check cooldown period
       const cooldownStatus = await this.isWithinCooldown(studentNumber);
@@ -179,7 +182,8 @@ class AppointmentService {
         teacherPhotoUrl: teacherPhotoUrl || null,
         status: 'pending',
         createdAt: serverTimestamp(),
-        studentNote
+        studentNote,
+        isSpecial: true // Set to true when appointment is created by student
       };
 
       // Create teacher index entry
@@ -187,7 +191,8 @@ class AppointmentService {
         studentNumber,
         appointmentId,
         status: 'pending',
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        isSpecial: true // Set to true when appointment is created by student
       };
 
       // Atomic update

@@ -11,6 +11,7 @@ import {
   Trash2,
   LogOut,
   CreditCard,
+  Smartphone,
 } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
@@ -98,6 +99,7 @@ export default function App() {
   const [isAssignDialogOpen, setIsAssignDialogOpen] =
     useState(false);
   const [isAddRfidPopupOpen, setIsAddRfidPopupOpen] = useState(false);
+  const [installInstructionsOpen, setInstallInstructionsOpen] = useState(false);
 
 
   // Hardware settings states
@@ -110,6 +112,24 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [isStudentLoginLoading, setIsStudentLoginLoading] = useState(false);
+  
+  // Super admin and role states
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [userRole, setUserRole] = useState(null);
+  
+  // Admin login timeout states (3 failed attempts)
+  const [failedLoginAttempts, setFailedLoginAttempts] = useState(0);
+  const [isLoginBlocked, setIsLoginBlocked] = useState(false);
+  const [blockedUntil, setBlockedUntil] = useState<Date | null>(null);
+  
+  // Super admin management states
+  const [adminManagementOpen, setAdminManagementOpen] = useState(false);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminPassword, setNewAdminPassword] = useState("");
+  const [newAdminName, setNewAdminName] = useState("");
+  const [adminAccounts, setAdminAccounts] = useState([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+  
   const [rfidTags, setRfidTags] = useState([]);
   const [rfidLoading, setRfidLoading] = useState(true);
   const [rfidError, setRfidError] = useState('');
@@ -133,18 +153,42 @@ export default function App() {
   const isTagActive = (tag: any) => tag?.status === 'active' || tag?.status === true || tag?.status === 'Active';
 
   useEffect(() => {
-    const unsubscribe = authService.onAuthStateChange((user) => {
+    const unsubscribe = authService.onAuthStateChange(async (user) => {
       setUser(user);
       
       if (user) {
-        // Check if user is admin and set state accordingly
-        const isAdmin = authService.isAdmin(user);
-        setIsAdminLoggedIn(isAdmin);
-        if (isAdmin) {
-          setCurrentPage("dashboard");
+        // Check user roles with new system
+        try {
+          const isAdmin = await authService.isAdmin(user);
+          const isSuperAdminRole = await authService.isSuperAdmin(user);
+          
+          setIsAdminLoggedIn(isAdmin);
+          setIsSuperAdmin(isSuperAdminRole);
+          
+          // Set user role for UI
+          if (isSuperAdminRole) {
+            setUserRole('super_admin');
+          } else if (isAdmin) {
+            setUserRole('admin');
+          } else {
+            setUserRole('user');
+          }
+          
+          if (isAdmin) {
+            setCurrentPage("dashboard");
+          }
+        } catch (error) {
+          console.error('Error checking user roles:', error);
+          // Fallback to basic admin check
+          const isAdmin = await authService.isAdmin(user);
+          setIsAdminLoggedIn(isAdmin);
+          setIsSuperAdmin(false);
+          setUserRole(isAdmin ? 'admin' : 'user');
         }
       } else {
         setIsAdminLoggedIn(false);
+        setIsSuperAdmin(false);
+        setUserRole(null);
       }
       
       setAuthLoading(false);
@@ -152,6 +196,50 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  // Initialize timeout state from localStorage on component mount
+  useEffect(() => {
+    const savedTimeout = localStorage.getItem('adminLoginTimeout');
+    const savedAttempts = localStorage.getItem('adminLoginAttempts');
+    
+    if (savedTimeout && savedAttempts) {
+      const timeoutDate = new Date(parseInt(savedTimeout));
+      const attempts = parseInt(savedAttempts);
+      
+      if (new Date() < timeoutDate) {
+        // Still in timeout period
+        setIsLoginBlocked(true);
+        setBlockedUntil(timeoutDate);
+        setFailedLoginAttempts(attempts);
+      } else {
+        // Timeout has expired, clear localStorage
+        localStorage.removeItem('adminLoginTimeout');
+        localStorage.removeItem('adminLoginAttempts');
+        setIsLoginBlocked(false);
+        setBlockedUntil(null);
+        setFailedLoginAttempts(0);
+      }
+    }
+  }, []);
+  
+  // Check if login timeout has expired
+  useEffect(() => {
+    if (isLoginBlocked && blockedUntil) {
+      const interval = setInterval(() => {
+        if (new Date() >= blockedUntil) {
+          setIsLoginBlocked(false);
+          setBlockedUntil(null);
+          setFailedLoginAttempts(0);
+          setLoginError('');
+          // Clear localStorage when timeout expires
+          localStorage.removeItem('adminLoginTimeout');
+          localStorage.removeItem('adminLoginAttempts');
+        }
+      }, 1000); // Check every second
+      
+      return () => clearInterval(interval);
+    }
+  }, [isLoginBlocked, blockedUntil]);
 
   // WiFi status handler - listen for ESP32 WiFi station status
   useEffect(() => {
@@ -596,24 +684,77 @@ export default function App() {
       return;
     }
     
+    // Check if login is blocked
+    if (isLoginBlocked && blockedUntil && new Date() < blockedUntil) {
+      const remainingMinutes = Math.ceil((blockedUntil.getTime() - new Date().getTime()) / (1000 * 60));
+      setLoginError(`Too many failed attempts. Please try again in ${remainingMinutes} minutes.`);
+      return;
+    }
+    
     setLoginError('');
     try {
       const result = await authService.loginAdmin(adminEmail, adminPassword);
       if (result.success) {
+        // Reset failed attempts on successful login
+        setFailedLoginAttempts(0);
+        setIsLoginBlocked(false);
+        setBlockedUntil(null);
         setAdminLoginOpen(false);
         setAdminEmail("");
         setAdminPassword("");
         toast.success("Admin login successful!");
+        
+        // Clear localStorage on successful login
+        localStorage.removeItem('adminLoginTimeout');
+        localStorage.removeItem('adminLoginAttempts');
         // isAdminLoggedIn will be set by the auth state observer
       } else {
-        const errorMessage = result.error || 'Login failed';
-        setLoginError(errorMessage);
-        toast.error(`Login failed: ${errorMessage}`);
+        const newFailedAttempts = failedLoginAttempts + 1;
+        setFailedLoginAttempts(newFailedAttempts);
+        
+        if (newFailedAttempts >= 3) {
+          // Block login for 10 minutes
+          const blockUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+          setIsLoginBlocked(true);
+          setBlockedUntil(blockUntil);
+          setLoginError('Too many failed attempts. Admin login is blocked for 10 minutes.');
+          toast.error('Too many failed attempts. Admin login is blocked for 10 minutes.');
+          
+          // Save to localStorage to persist across page refreshes
+          localStorage.setItem('adminLoginTimeout', blockUntil.getTime().toString());
+          localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+        } else {
+          const errorMessage = result.error || 'Login failed';
+          setLoginError(errorMessage);
+          toast.error(`Login failed: ${errorMessage}`);
+          
+          // Save failed attempts to localStorage even if less than 3
+          localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+        }
       }
     } catch (error) {
-      const errorMessage = 'Login failed - please try again';
-      setLoginError(errorMessage);
-      toast.error(errorMessage);
+      const newFailedAttempts = failedLoginAttempts + 1;
+      setFailedLoginAttempts(newFailedAttempts);
+      
+      if (newFailedAttempts >= 3) {
+        // Block login for 10 minutes
+        const blockUntil = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
+        setIsLoginBlocked(true);
+        setBlockedUntil(blockUntil);
+        setLoginError('Too many failed attempts. Admin login is blocked for 10 minutes.');
+        toast.error('Too many failed attempts. Admin login is blocked for 10 minutes.');
+        
+        // Save to localStorage to persist across page refreshes
+        localStorage.setItem('adminLoginTimeout', blockUntil.getTime().toString());
+        localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+      } else {
+        const errorMessage = 'Login failed - please try again';
+        setLoginError(errorMessage);
+        toast.error(errorMessage);
+        
+        // Save failed attempts to localStorage even if less than 3
+        localStorage.setItem('adminLoginAttempts', newFailedAttempts.toString());
+      }
     }
   };
 
@@ -711,10 +852,89 @@ export default function App() {
     }
   };
 
-  const handleRemoveFaculty = (facultyId) => {
-    setFacultyMembers((prev) =>
-      prev.filter((faculty) => faculty.id !== facultyId),
-    );
+  const handleRemoveFaculty = async (facultyId) => {
+    if (isSuperAdmin) {
+      // Super admin can actually delete teacher accounts
+      try {
+        setFacultyLoading(true);
+        const result = await authService.deleteTeacherAccount(facultyId);
+        toast.success(result.message);
+        // Refresh faculty list
+        setFacultyMembers((prev) =>
+          prev.filter((faculty) => faculty.id !== facultyId),
+        );
+      } catch (error) {
+        console.error('Error deleting teacher:', error);
+        toast.error('Failed to delete teacher account: ' + error);
+      } finally {
+        setFacultyLoading(false);
+      }
+    } else {
+      // Regular admin can only remove from local state (existing behavior)
+      setFacultyMembers((prev) =>
+        prev.filter((faculty) => faculty.id !== facultyId),
+      );
+    }
+  };
+
+  // Super admin management functions
+  const handleCreateAdmin = async () => {
+    if (!newAdminEmail || !newAdminPassword || !newAdminName) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    try {
+      setAdminLoading(true);
+      const result = await authService.createAdminAccount(
+        newAdminEmail,
+        newAdminPassword,
+        newAdminName
+      );
+      
+      toast.success(result.message);
+      setNewAdminEmail("");
+      setNewAdminPassword("");
+      setNewAdminName("");
+      setAdminManagementOpen(false);
+      
+      // Refresh admin list
+      await loadAdminAccounts();
+    } catch (error) {
+      console.error('Error creating admin:', error);
+      toast.error('Failed to create admin account: ' + error);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleDeleteAdmin = async (adminUid) => {
+    try {
+      setAdminLoading(true);
+      const result = await authService.deleteAdminAccount(adminUid);
+      toast.success(result.message);
+      
+      // Refresh admin list
+      await loadAdminAccounts();
+    } catch (error) {
+      console.error('Error deleting admin:', error);
+      toast.error('Failed to delete admin account: ' + error);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const loadAdminAccounts = async () => {
+    try {
+      setAdminLoading(true);
+      const result = await authService.getAdminAccounts();
+      setAdminAccounts([...result.admins, ...result.superAdmins]);
+    } catch (error) {
+      console.error('Error loading admin accounts:', error);
+      toast.error('Failed to load admin accounts');
+    } finally {
+      setAdminLoading(false);
+    }
   };
 
   const handleAssignRfid = () => {
@@ -770,6 +990,13 @@ export default function App() {
       }
     };
   }, [user?.uid, isAdminLoggedIn, isFailsafeMode]);
+
+  // Auto-load admin accounts when super admin opens admin management page
+  useEffect(() => {
+    if (isSuperAdmin && currentPage === "admin-management") {
+      loadAdminAccounts();
+    }
+  }, [isSuperAdmin, currentPage]);
 
   useEffect(() => {
     let unsubscribe = () => {}; 
@@ -878,6 +1105,21 @@ export default function App() {
                   >
                     <Settings className="w-5 h-5" />
                     Hardware Settings
+                  </button>
+                )}
+
+                {/* Super Admin Management Button - Only for Super Admin */}
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => setCurrentPage("admin-management")}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                      currentPage === "admin-management"
+                        ? "bg-blue-50 text-blue-700"
+                        : "hover:bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    <Users className="w-5 h-5" />
+                    Admin Management
                   </button>
                 )}
               </>
@@ -1078,10 +1320,10 @@ export default function App() {
                             <Button
                               onClick={handleAdminLogin}
                               disabled={
-                                !adminEmail || !adminPassword
+                                !adminEmail || !adminPassword || isLoginBlocked
                               }
                             >
-                              Login
+                              {isLoginBlocked ? 'Login Blocked' : 'Login'}
                             </Button>
                           </div>
                         </DialogContent>
@@ -1127,6 +1369,19 @@ export default function App() {
               <Label htmlFor="verificationNumber">
                 Student Number (Required for verification)
               </Label>
+              {/* Hidden dummy inputs to prevent autofill */}
+              <input
+                type="text"
+                style={{ display: 'none' }}
+                autoComplete="off"
+                tabIndex={-1}
+              />
+              <input
+                type="password"
+                style={{ display: 'none' }}
+                autoComplete="off"
+                tabIndex={-1}
+              />
               <Input
                 id="verificationNumber"
                 placeholder="Enter your 6-digit student number"
@@ -1138,6 +1393,11 @@ export default function App() {
                 }}
                 maxLength={6}
                 disabled={appointmentLoading}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck="false"
+                data-form-type="other"
               />
               <p className="text-xs text-gray-500">
                 This is required to verify your identity and prevent abuse
@@ -1431,10 +1691,12 @@ export default function App() {
                               ></div>
                               <span className="text-sm font-medium">{faculty.status}</span>
                           </div>
-                            {/* Bottom line: Displays "time ago" or an invisible placeholder */}
-                              <p className="text-xs text-gray-500 h-4">
-                              {faculty.status !== "Online" ? faculty.lastSeen : ''}
-                              </p>
+                            {/* Bottom line: Displays "time ago" only when not online */}
+                              {faculty.status !== "Online" && faculty.lastSeen && (
+                                <p className="text-xs text-gray-500">
+                                  {faculty.lastSeen}
+                                </p>
+                              )}
                           </div>
                             <Button
                               variant="outline"
@@ -1455,74 +1717,126 @@ export default function App() {
                   </CardContent>
                 </Card>
 
-                {/* Appointment History */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center gap-3">
-                      <Calendar className="w-5 h-5 text-blue-600" />
-                      <CardTitle>Appointment History</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {appointmentLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <div className="flex items-center gap-2 text-gray-600">
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
-                            <span>Loading appointments...</span>
-                          </div>
-                        </div>
-                      ) : studentAppointments.length === 0 ? (
-                        <div className="text-center py-8 text-gray-500">
-                          <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                          <p>No appointment history</p>
-                          <p className="text-sm mt-1">Student appointments will appear here</p>
-                        </div>
-                      ) : (
-                        studentAppointments.slice(0, 6).map((appointment) => (
-                          <div
-                            key={appointment.id}
-                            className="flex flex-col gap-3 p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="p-2 bg-blue-100 rounded-lg">
-                                <Calendar className="w-4 h-4 text-blue-600" />
-                              </div>
-                              <div className="flex-1">
-                                {/* ✅ Display both student and teacher name */}
-                                <h4 className="font-medium text-gray-900 text-sm">
-                                    <span className="font-bold">{appointment.studentName || 'Unknown Student'}</span>
-                                    <span className="mx-2 font-normal text-gray-400">→</span>
-                                    <span>{appointment.teacherName}</span>
-                                </h4>
-                                <p className="text-sm text-gray-500">
-                                  {formatAppointmentDate(appointment.createdAt)}
-                                </p>
-                              </div>
-                              <Badge
-                                variant="secondary"
-                                className={getAppointmentStatusColor(appointment.status)}
-                              >
-                                {/* ✅ Use the new detailed status formatter */}
-                                {formatAppointmentStatus(appointment)}
-                              </Badge>
+                {/* QR Code (when not signed in) or Appointment History (when signed in) */}
+                {!user ? (
+                  /* QR Code for Mobile App */
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center gap-3">
+                        <Smartphone className="w-5 h-5 text-blue-600" />
+                        <CardTitle>Get the Mobile App</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-col items-center justify-center py-10 text-center">
+                        <h4 className="text-lg font-medium text-gray-900 mb-4">Download the KnockSense App</h4>
+                        
+                        {/* QR Code Image */}
+                        <div className="w-20 h-20 bg-white border-2 border-gray-300 rounded-lg flex items-center justify-center shadow-sm mb-4">
+                          <img 
+                            src="src/assets/qr_img.png" 
+                            alt="QR Code for KnockSense Mobile App"
+                            className="w-16 h-16 object-contain"
+                            onError={(e) => {
+                              // Fallback if image doesn't exist
+                              e.currentTarget.style.display = 'none';
+                              const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                              if (fallback) {
+                                fallback.style.display = 'flex';
+                              }
+                            }}
+                          />
+                          {/* Fallback pattern if image doesn't exist */}
+                          <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded flex items-center justify-center" style={{ display: 'none' }}>
+                            <div className="text-xs text-gray-500 text-center">
+                              QR Code<br/>1024x1024<br/>PNG
                             </div>
-                            {appointment.studentNote && (
-                              <div className="text-sm text-gray-600 pl-11">
-                                Note: {appointment.studentNote}
-                              </div>
-                            )}
-                            {appointment.teacherResponse && (
-                              <div className="text-sm text-blue-600 pl-11">
-                                Response: {appointment.teacherResponse}
-                              </div>
-                            )}
                           </div>
-                        ))
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
+                        </div>
+                        
+                        <p className="text-sm text-gray-600 max-w-sm mb-16">Scan the QR code with your phone to download our mobile app to be able to schedule appointments.</p>
+                        
+                        <div className="mt-24">
+                          <Button 
+                            size="sm"
+                            onClick={() => setInstallInstructionsOpen(true)}
+                          >
+                            Instructions
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  /* Appointment History (when signed in) */
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center gap-3">
+                        <Calendar className="w-5 h-5 text-blue-600" />
+                        <CardTitle>Appointment History</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {appointmentLoading ? (
+                          <div className="flex items-center justify-center py-8">
+                            <div className="flex items-center gap-2 text-gray-600">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                              <span>Loading appointments...</span>
+                            </div>
+                          </div>
+                        ) : studentAppointments.length === 0 ? (
+                          <div className="text-center py-8 text-gray-500">
+                            <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                            <p>No appointment history</p>
+                            <p className="text-sm mt-1">Student appointments will appear here</p>
+                          </div>
+                        ) : (
+                          studentAppointments.slice(0, 6).map((appointment) => (
+                            <div
+                              key={appointment.id}
+                              className="flex flex-col gap-3 p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-100 rounded-lg">
+                                  <Calendar className="w-4 h-4 text-blue-600" />
+                                </div>
+                                <div className="flex-1">
+                                  {/* ✅ Display both student and teacher name */}
+                                  <h4 className="font-medium text-gray-900 text-sm">
+                                      <span className="font-bold">{appointment.studentName || 'Unknown Student'}</span>
+                                      <span className="mx-2 font-normal text-gray-400">→</span>
+                                      <span>{appointment.teacherName}</span>
+                                  </h4>
+                                  <p className="text-sm text-gray-500">
+                                    {formatAppointmentDate(appointment.createdAt)}
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant="secondary"
+                                  className={getAppointmentStatusColor(appointment.status)}
+                                >
+                                  {/* ✅ Use the new detailed status formatter */}
+                                  {formatAppointmentStatus(appointment)}
+                                </Badge>
+                              </div>
+                              {appointment.studentNote && (
+                                <div className="text-sm text-gray-600 pl-11">
+                                  Note: {appointment.studentNote}
+                                </div>
+                              )}
+                              {appointment.teacherResponse && (
+                                <div className="text-sm text-blue-600 pl-11">
+                                  Response: {appointment.teacherResponse}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
             </>
           )}
@@ -1684,13 +1998,24 @@ export default function App() {
                             <AlertDialogContent>
                               <AlertDialogHeader>
                                 <AlertDialogTitle>
-                                  Are you sure?
+                                  {isSuperAdmin ? "Delete Teacher Account" : "Remove Teacher"}
                                 </AlertDialogTitle>
                                 <AlertDialogDescription>
-                                  This will permanently delete
-                                  the account of{" "}
-                                  <b>{faculty.name}</b>. You
-                                  cannot undo this action.
+                                  {isSuperAdmin ? (
+                                    <>
+                                      This will permanently delete the teacher account of{" "}
+                                      <b>{faculty.name}</b> from Firebase. This action cannot be undone.
+                                      <br /><br />
+                                      <strong>Note:</strong> Complete deletion from Firebase may take up to 30 days.
+                                    </>
+                                  ) : (
+                                    <>
+                                      This will remove{" "}
+                                      <b>{faculty.name}</b> from the local faculty list.
+                                      <br /><br />
+                                      <strong>Note:</strong> Only super admins can permanently delete teacher accounts.
+                                    </>
+                                  )}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
 
@@ -1706,7 +2031,7 @@ export default function App() {
                                   }
                                   className="bg-red-600 hover:bg-red-700 text-white"
                                 >
-                                  Delete
+                                  {isSuperAdmin ? "Delete Account" : "Remove"}
                                 </AlertDialogAction>
                               </AlertDialogFooter>
                             </AlertDialogContent>
@@ -2085,6 +2410,124 @@ export default function App() {
               </Card>
             </>
           )}
+          
+          {/* === Super Admin Management (only for super admin when currentPage === "admin-management") === */}
+          {isSuperAdmin && currentPage === "admin-management" && (
+            <>
+              <Card>
+                <CardHeader>
+                  <CardTitle>Admin Account Management</CardTitle>
+                  <p className="text-sm text-gray-600">
+                    Create and manage admin accounts. Only super admins can access this section.
+                  </p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Create New Admin */}
+                  <div className="border rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">Create New Admin</h3>
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="space-y-2">
+                        <Label htmlFor="newAdminName">Full Name</Label>
+                        <Input
+                          id="newAdminName"
+                          placeholder="Enter admin's full name"
+                          value={newAdminName}
+                          onChange={(e) => setNewAdminName(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="newAdminEmail">Email</Label>
+                        <Input
+                          id="newAdminEmail"
+                          type="email"
+                          placeholder="Enter admin's email"
+                          value={newAdminEmail}
+                          onChange={(e) => setNewAdminEmail(e.target.value)}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="newAdminPassword">Password</Label>
+                        <Input
+                          id="newAdminPassword"
+                          type="password"
+                          placeholder="Enter temporary password"
+                          value={newAdminPassword}
+                          onChange={(e) => setNewAdminPassword(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <Button 
+                      onClick={handleCreateAdmin}
+                      disabled={adminLoading || !newAdminName || !newAdminEmail || !newAdminPassword}
+                      className="mt-4"
+                    >
+                      {adminLoading ? "Creating..." : "Create Admin Account"}
+                    </Button>
+                  </div>
+
+                  {/* Admin Accounts List */}
+                  <div className="border rounded-lg p-6">
+                    <h3 className="text-lg font-semibold mb-4">Admin Accounts</h3>
+                    
+                    {adminLoading ? (
+                      <div className="flex items-center justify-center py-4">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                          <span>Loading admin accounts...</span>
+                        </div>
+                      </div>
+                    ) : adminAccounts.length === 0 ? (
+                      <p className="text-gray-500">No admin accounts found.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {adminAccounts.map((admin) => (
+                          <div key={admin.uid} className="flex items-center justify-between p-4 border rounded-lg">
+                            <div className="space-y-1">
+                              <p className="font-medium">{admin.displayName}</p>
+                              <p className="text-sm text-gray-500">{admin.email}</p>
+                              <p className="text-xs text-gray-400">
+                                Role: {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              {admin.role !== 'super_admin' && (
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" size="sm">
+                                      <Trash2 className="w-4 h-4" />
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Delete Admin Account</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        Are you sure you want to delete the admin account for{" "}
+                                        <b>{admin.displayName}</b>? This action cannot be undone.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteAdmin(admin.uid)}
+                                        className="bg-red-600 hover:bg-red-700"
+                                      >
+                                        Delete
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+          
           {/* === Admin Hardware Settings (only for admin when currentPage === "hardware") === */}
           {(isAdminLoggedIn || isFailsafeMode) && currentPage === "hardware" && (
             <>
@@ -2169,6 +2612,91 @@ export default function App() {
           )}
         </main>
       </div>
+      
+      {/* Installation Instructions Dialog */}
+      <Dialog
+        open={installInstructionsOpen}
+        onOpenChange={setInstallInstructionsOpen}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Android Installation Instructions</DialogTitle>
+            <DialogDescription>
+              Follow these steps to install the KnockSense mobile app on your Android device.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  1
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Enable Unknown Sources</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Go to <strong>Settings → Security → Unknown Sources</strong> and enable it. 
+                    This allows installation of apps from sources other than Google Play Store.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  2
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Scan the QR Code</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Use your phone's camera or QR code scanner to scan the QR code above. 
+                    This will download the APK file to your device.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  3
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Install the APK</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Once downloaded, tap on the APK file in your Downloads folder and follow the installation prompts. 
+                    You may need to grant additional permissions during installation.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0 mt-0.5">
+                  4
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">Launch the App</h4>
+                  <p className="text-sm text-gray-600 mt-1">
+                    After installation, you can find the KnockSense app in your app drawer. 
+                    Tap to open and start scheduling appointments with your teachers.
+                  </p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mt-4">
+              <div className="flex items-start gap-2">
+                <div className="text-yellow-600 text-sm">⚠️</div>
+                <div className="text-sm text-yellow-800">
+                  <strong>Note:</strong> If you encounter any issues during installation, 
+                  make sure your device has enough storage space and that you have a stable internet connection.
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end">
+            <Button onClick={() => setInstallInstructionsOpen(false)}>
+              Got it
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       {/* Toast Notifications */}
       <Toaster />

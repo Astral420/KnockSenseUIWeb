@@ -9,7 +9,9 @@ import {
   onAuthStateChanged 
 } from "firebase/auth";
 // ADDED: Import Realtime Database functions
-import { getDatabase, ref, get } from "firebase/database"; 
+import { getDatabase, ref, get } from "firebase/database";
+// ADDED: Import Cloud Functions
+import { getFunctions, httpsCallable } from "firebase/functions"; 
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -26,6 +28,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app); // ADDED: Initialize database
+// Point client to the same region where functions are deployed
+const functions = getFunctions(app, 'asia-southeast1'); // ADDED: Initialize Cloud Functions in region
 
 // Microsoft OAuth provider
 const microsoftProvider = new OAuthProvider('microsoft.com');
@@ -131,10 +135,108 @@ export const authService = {
     });
   },
 
-  // Check if user is admin (you can customize this logic)
-  isAdmin: (user) => {
-    const adminEmails = ['coolrigby101@gmail.com', 'fateh8er201@gmail.com']; 
-    return user && adminEmails.includes(user.email);
+  // Check if user is admin (backward compatible)
+  isAdmin: async (user) => {
+    if (!user) return false;
+    
+    // Check new role system first
+    try {
+      const adminRef = ref(db, `roles/admin/${user.uid}`);
+      const adminSnapshot = await get(adminRef);
+      if (adminSnapshot.exists()) return true;
+      
+      // Fallback to existing logic during migration
+      const adminEmails = ['coolrigby101@gmail.com', 'fateh8er201@gmail.com'];
+      return adminEmails.includes(user.email);
+    } catch (error) {
+      console.error('Error checking admin status:', error);
+      // Fallback to email check
+      const adminEmails = ['coolrigby101@gmail.com', 'fateh8er201@gmail.com'];
+      return adminEmails.includes(user.email);
+    }
+  },
+
+  // Check if user is super admin
+  isSuperAdmin: async (user) => {
+    if (!user) return false;
+    
+    try {
+      const superAdminRef = ref(db, `roles/super_admin/${user.uid}`);
+      const snapshot = await get(superAdminRef);
+      if (snapshot.exists()) return true;
+      return false; // No email fallback; rely strictly on DB role
+    } catch (error) {
+      console.error('Error checking super admin status:', error);
+      return false;
+    }
+  },
+
+  // Check if user is verified admin (has verified email)
+  isVerifiedAdmin: async (user) => {
+    if (!user || !user.emailVerified) return false;
+    return await this.isAdmin(user);
+  },
+
+  // Check if user is verified super admin
+  isVerifiedSuperAdmin: async (user) => {
+    if (!user || !user.emailVerified) return false;
+    return await this.isSuperAdmin(user);
+  },
+
+  // Admin management functions
+  createAdminAccount: async (email, password, displayName) => {
+    try {
+      const createAdmin = httpsCallable(functions, 'createAdminAccount');
+      const result = await createAdmin({
+        email,
+        password,
+        displayName,
+        createdBy: auth.currentUser?.uid
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Error creating admin account:', error);
+      throw error;
+    }
+  },
+
+  deleteAdminAccount: async (adminUid) => {
+    try {
+      const deleteAdmin = httpsCallable(functions, 'deleteAdminAccount');
+      const result = await deleteAdmin({
+        adminUid,
+        deletedBy: auth.currentUser?.uid
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Error deleting admin account:', error);
+      throw error;
+    }
+  },
+
+  deleteTeacherAccount: async (teacherUid) => {
+    try {
+      const deleteTeacher = httpsCallable(functions, 'deleteTeacherAccount');
+      const result = await deleteTeacher({
+        teacherUid,
+        deletedBy: auth.currentUser?.uid
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Error deleting teacher account:', error);
+      throw error;
+    }
+  },
+
+  getAdminAccounts: async () => {
+    try {
+      const getAdmins = httpsCallable(functions, 'getAdminAccounts');
+      const result = await getAdmins();
+      return result.data;
+    } catch (error) {
+      console.error('Error getting admin accounts:', error);
+      throw error;
+    }
   }
 };
 

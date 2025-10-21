@@ -63,7 +63,10 @@ class TeacherService {
     const normalizedStatus = raw === 'online' ? 'Online' : raw === 'busy' ? 'Busy' : 'Offline';
     const active = normalizedStatus !== 'Offline';
     const displayName = t?.displayName || 'Unknown';
-    const initials = displayName
+    
+    // Clean the display name for initials generation (remove (Faculty) suffix)
+    const cleanedDisplayName = displayName.replace(/\s*\(.*?\)/, '');
+    const initials = cleanedDisplayName
       .split(' ')
       .map((n) => n.charAt(0))
       .join('')

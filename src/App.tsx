@@ -195,45 +195,6 @@ export default function App() {
     });
   };
 
-  const parseDateFilterValue = (value: string, options?: { endOfDay?: boolean }) => {
-    if (!value) return null;
-    const parts = value.split('/');
-    if (parts.length !== 3) return null;
-
-    const [monthStr, dayStr, yearStr] = parts.map((part) => part.trim());
-    const month = Number.parseInt(monthStr, 10) - 1;
-    const day = Number.parseInt(dayStr, 10);
-    const year = Number.parseInt(yearStr, 10);
-
-    if (
-      Number.isNaN(month) ||
-      Number.isNaN(day) ||
-      Number.isNaN(year) ||
-      month < 0 ||
-      month > 11 ||
-      day < 1 ||
-      day > 31 ||
-      year < 1900
-    ) {
-      return null;
-    }
-
-    const date = new Date(year, month, day, 0, 0, 0, 0);
-    if (date.getMonth() !== month || date.getDate() !== day || date.getFullYear() !== year) {
-      return null;
-    }
-
-    if (options?.endOfDay) {
-      date.setHours(23, 59, 59, 999);
-    }
-
-    return date;
-  };
-
-  const handleDateFilterInput = (key: 'startDate' | 'endDate', value: string) => {
-    setLogDateFilter((prev) => ({ ...prev, [key]: value }));
-  };
-
   // Auto-logout timer for student sessions (non-admin)
   const studentLogoutTimerRef = useRef<number | null>(null);
 
@@ -2720,20 +2681,18 @@ export default function App() {
                       <Label htmlFor="startDate">Start Date</Label>
                       <Input
                         id="startDate"
-                        type="text"
-                        placeholder="MM/DD/YYYY"
+                        type="date"
                         value={logDateFilter.startDate}
-                        onChange={(e) => handleDateFilterInput('startDate', e.target.value)}
+                        onChange={(e) => setLogDateFilter({ ...logDateFilter, startDate: e.target.value })}
                       />
                     </div>
                     <div className="flex-1">
                       <Label htmlFor="endDate">End Date</Label>
                       <Input
                         id="endDate"
-                        type="text"
-                        placeholder="MM/DD/YYYY"
+                        type="date"
                         value={logDateFilter.endDate}
-                        onChange={(e) => handleDateFilterInput('endDate', e.target.value)}
+                        onChange={(e) => setLogDateFilter({ ...logDateFilter, endDate: e.target.value })}
                       />
                     </div>
                     <Button
@@ -2765,8 +2724,8 @@ export default function App() {
                               const filteredLogs = accessLogs.filter((log) => {
                                 if (!logDateFilter.startDate && !logDateFilter.endDate) return true;
                                 const logDate = new Date(log.timestamp);
-                                const start = parseDateFilterValue(logDateFilter.startDate);
-                                const end = parseDateFilterValue(logDateFilter.endDate, { endOfDay: true });
+                                const start = logDateFilter.startDate ? new Date(logDateFilter.startDate) : null;
+                                const end = logDateFilter.endDate ? new Date(logDateFilter.endDate + 'T23:59:59') : null;
                                 if (start && logDate < start) return false;
                                 if (end && logDate > end) return false;
                                 return true;
@@ -2823,8 +2782,8 @@ export default function App() {
                               const filteredLogs = attendanceLogs.filter((log) => {
                                 if (!logDateFilter.startDate && !logDateFilter.endDate) return true;
                                 const logDate = new Date(log.timestamp);
-                                const start = parseDateFilterValue(logDateFilter.startDate);
-                                const end = parseDateFilterValue(logDateFilter.endDate, { endOfDay: true });
+                                const start = logDateFilter.startDate ? new Date(logDateFilter.startDate) : null;
+                                const end = logDateFilter.endDate ? new Date(logDateFilter.endDate + 'T23:59:59') : null;
                                 if (start && logDate < start) return false;
                                 if (end && logDate > end) return false;
                                 return true;

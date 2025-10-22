@@ -12,6 +12,8 @@ import {
   LogOut,
   CreditCard,
   Smartphone,
+  UserX,
+  FileText,
 } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
@@ -40,6 +42,7 @@ import authService from './components/backend/auth/AuthService';
 import { rfidService } from './components/backend/RFIDService';
 import { espWebSocket } from './components/backend/WebSocketService';
 import { appointmentService } from './components/backend/AppointmentService';
+import { logService } from './components/backend/LogService';
 import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
 
@@ -70,8 +73,21 @@ import {
 //   last_exit_time?: number     // timestamp of most recent exit
 // }
 
+export function useDebounce<T>(value: T, delay = 300): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value);
 
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedValue(value);
+    }, delay);
 
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [value, delay]);
+
+  return debouncedValue;
+}
 
 export default function App() {
   const [studentLoginOpen, setStudentLoginOpen] =
@@ -91,6 +107,9 @@ export default function App() {
   const [facultyMembers, setFacultyMembers] = useState<any[]>([]);
   const [facultyLoading, setFacultyLoading] = useState<boolean>(true);
   const [facultyError, setFacultyError] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filteredFaculty, setFilteredFaculty] = useState<any[]>([]);
+  const debouncedSearchQuery = useDebounce(searchQuery, 300);
 
   const [newFacultyName, setNewFacultyName] = useState("");
   const [newRfidId, setNewRfidId] = useState("");
@@ -101,12 +120,11 @@ export default function App() {
   const [isAddRfidPopupOpen, setIsAddRfidPopupOpen] = useState(false);
   const [installInstructionsOpen, setInstallInstructionsOpen] = useState(false);
 
-
   // Hardware settings states
   const [ssid, setSsid] = useState("");
   const [wifiPassword, setWifiPassword] = useState("");
   const [isConnected, setIsConnected] = useState(false);
-  const [backupBatteryPercent, setBackupBatteryPercent] = useState<number | null>(null);
+  const [serialLogs, setSerialLogs] = useState<string[]>([]);
 
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -146,6 +164,75 @@ export default function App() {
   const [verificationStudentNumber, setVerificationStudentNumber] = useState('');
   const [appointmentNote, setAppointmentNote] = useState('');
 
+  // Logs state
+  const [accessLogs, setAccessLogs] = useState([]);
+  const [attendanceLogs, setAttendanceLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
+  const [activeLogCategory, setActiveLogCategory] = useState<'access' | 'attendance'>('access');
+  const [logDateFilter, setLogDateFilter] = useState({ startDate: '', endDate: '' });
+
+  const formatLogDate = (timestamp: number) => {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleDateString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
+    });
+  };
+
+  const formatLogTime = (timestamp: number) => {
+    if (!timestamp) return 'N/A';
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) return 'N/A';
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const parseDateFilterValue = (value: string, options?: { endOfDay?: boolean }) => {
+    if (!value) return null;
+    const parts = value.split('/');
+    if (parts.length !== 3) return null;
+
+    const [monthStr, dayStr, yearStr] = parts.map((part) => part.trim());
+    const month = Number.parseInt(monthStr, 10) - 1;
+    const day = Number.parseInt(dayStr, 10);
+    const year = Number.parseInt(yearStr, 10);
+
+    if (
+      Number.isNaN(month) ||
+      Number.isNaN(day) ||
+      Number.isNaN(year) ||
+      month < 0 ||
+      month > 11 ||
+      day < 1 ||
+      day > 31 ||
+      year < 1900
+    ) {
+      return null;
+    }
+
+    const date = new Date(year, month, day, 0, 0, 0, 0);
+    if (date.getMonth() !== month || date.getDate() !== day || date.getFullYear() !== year) {
+      return null;
+    }
+
+    if (options?.endOfDay) {
+      date.setHours(23, 59, 59, 999);
+    }
+
+    return date;
+  };
+
+  const handleDateFilterInput = (key: 'startDate' | 'endDate', value: string) => {
+    setLogDateFilter((prev) => ({ ...prev, [key]: value }));
+  };
 
   // Auto-logout timer for student sessions (non-admin)
   const studentLogoutTimerRef = useRef<number | null>(null);
@@ -369,29 +456,37 @@ export default function App() {
     }
   }, [authLoading, isAdminLoggedIn]);
 
+  // Debounced faculty search filtering
+  useEffect(() => {
+    if (!debouncedSearchQuery) {
+      setFilteredFaculty(facultyMembers);
+    } else {
+      const lowercasedQuery = debouncedSearchQuery.toLowerCase();
+      setFilteredFaculty(
+        facultyMembers.filter((faculty) =>
+          (faculty.name || "").toLowerCase().includes(lowercasedQuery)
+        ),
+      );
+    }
+  }, [debouncedSearchQuery, facultyMembers]);
 
   useEffect(() => {
     const handler = (msg) => {
-      console.log('ESP message:', msg);
-  
-      // Handle system status messages for battery info
-      if (msg.type === 'system_status') {
-        // Update backup battery percent if present
-        if (typeof msg.backup_battery_percent === 'number') {
-          setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.backup_battery_percent))));
-        } else if (typeof msg.battery_percent === 'number') {
-          setBackupBatteryPercent(Math.max(0, Math.min(100, Math.round(msg.battery_percent))));
-        }
+      try {
+        const line = typeof msg === 'string' ? msg : JSON.stringify(msg);
+        setSerialLogs((prev) => {
+          const next = [...prev, line];
+          return next.slice(-200);
+        });
+      } catch (error) {
+        // no-op
       }
-     
     };
-  
+
     espWebSocket.addMessageHandler(handler);
-    
-    // Connect to WebSocket and request initial status
     espWebSocket.connect(window.location.hostname, 81);
     espWebSocket.requestSystemStatus();
-  
+
     return () => {
       espWebSocket.removeMessageHandler(handler);
     };
@@ -1030,7 +1125,39 @@ export default function App() {
     
    
     return () => unsubscribe();
-  }, [user, isAdminLoggedIn]); 
+  }, [user, isAdminLoggedIn]);
+
+  // Subscribe to logs when super admin is on the logs page
+  useEffect(() => {
+    if (isSuperAdmin && currentPage === "logs") {
+      setLogsLoading(true);
+      setLogsError('');
+      
+      const handleAccessLogs = (logs) => {
+        setAccessLogs(logs);
+        setLogsLoading(false);
+      };
+      
+      const handleAttendanceLogs = (logs) => {
+        setAttendanceLogs(logs);
+        setLogsLoading(false);
+      };
+      
+      const handleError = (error) => {
+        console.error('Error loading logs:', error);
+        setLogsError('Failed to load logs. Please refresh the page.');
+        setLogsLoading(false);
+      };
+      
+      // Subscribe to both log types
+      logService.subscribeToAccessLogs(handleAccessLogs, handleError);
+      logService.subscribeToAttendanceLogs(handleAttendanceLogs, handleError);
+      
+      return () => {
+        logService.unsubscribeFromAll();
+      };
+    }
+  }, [isSuperAdmin, currentPage]); 
 
 
 
@@ -1120,6 +1247,21 @@ export default function App() {
                   >
                     <Users className="w-5 h-5" />
                     Admin Management
+                  </button>
+                )}
+
+                {/* Logs Button - Only for Super Admin */}
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => setCurrentPage("logs")}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
+                      currentPage === "logs"
+                        ? "bg-blue-50 text-blue-700"
+                        : "hover:bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    <FileText className="w-5 h-5" />
+                    Logs
                   </button>
                 )}
               </>
@@ -1555,6 +1697,8 @@ export default function App() {
                     <Input
                       placeholder="Search faculty members..."
                       className="pl-10"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
                     />
                   </div>
                 </CardContent>
@@ -1605,16 +1749,19 @@ export default function App() {
                 <Card>
                   <CardContent className="p-6">
                     <div className="flex items-center gap-4">
-                      <div className="p-3 bg-blue-100 rounded-lg">
-                        <Bell className="w-6 h-6 text-blue-600" />
+                      <div className="p-3 bg-gray-100 rounded-lg">
+                        <UserX className="w-6 h-6 text-gray-600" />
                       </div>
                       <div>
                         <p className="text-sm text-gray-600">
-                          Total Inquiries
+                          Offline Faculty
                         </p>
-                        {/* Replace the hardcoded number with the array length */}
                         <p className="text-2xl font-semibold">
-                          {studentAppointments.length}
+                          {
+                            facultyMembers.filter(
+                              (f) => f.status === "Offline",
+                            ).length
+                          }
                         </p>
                       </div>
                     </div>
@@ -1649,7 +1796,7 @@ export default function App() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {facultyMembers.map((faculty) => (
+                      {filteredFaculty.map((faculty) => (
                         <div
                           key={faculty.id}
                           className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
@@ -1754,7 +1901,7 @@ export default function App() {
                           </div>
                         </div>
                         
-                        <p className="text-sm text-gray-600 max-w-sm mb-16">Scan the QR code with your phone to download our mobile app to be able to schedule appointments.</p>
+                        <p className="text-sm text-gray-600 max-w-sm mb-16">Scan the QR code with your phone to download our mobile app to be able to schedule appointments with offline/busy professors.</p>
                         
                         <div className="mt-24">
                           <Button 
@@ -1946,7 +2093,7 @@ export default function App() {
                   )}
                   {!facultyLoading && !facultyError && (
                     <div className="space-y-4">
-                      {facultyMembers.map((faculty) => (
+                      {filteredFaculty.map((faculty) => (
                       <div
                         key={faculty.id}
                         className="flex items-center justify-between p-4 border border-gray-100 rounded-lg hover:bg-gray-50 transition-colors"
@@ -2527,6 +2674,249 @@ export default function App() {
               </Card>
             </>
           )}
+
+          {/* === Logs Page (only for super admin when currentPage === "logs") === */}
+          {isSuperAdmin && currentPage === "logs" && (
+            <>
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle>System Logs</CardTitle>
+                      <p className="text-sm text-gray-600 mt-1">
+                        View real-time access and attendance logs from the system
+                      </p>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Category Tabs */}
+                  <div className="flex gap-2 border-b">
+                    <button
+                      onClick={() => setActiveLogCategory('access')}
+                      className={`px-4 py-2 font-medium transition-colors ${
+                        activeLogCategory === 'access'
+                          ? 'text-blue-600 border-b-2 border-blue-600'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Access Logs
+                    </button>
+                    <button
+                      onClick={() => setActiveLogCategory('attendance')}
+                      className={`px-4 py-2 font-medium transition-colors ${
+                        activeLogCategory === 'attendance'
+                          ? 'text-blue-600 border-b-2 border-blue-600'
+                          : 'text-gray-600 hover:text-gray-900'
+                      }`}
+                    >
+                      Attendance Logs
+                    </button>
+                  </div>
+
+                  {/* Date Range Filter */}
+                  <div className="flex gap-4 items-end">
+                    <div className="flex-1">
+                      <Label htmlFor="startDate">Start Date</Label>
+                      <Input
+                        id="startDate"
+                        type="text"
+                        placeholder="MM/DD/YYYY"
+                        value={logDateFilter.startDate}
+                        onChange={(e) => handleDateFilterInput('startDate', e.target.value)}
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <Label htmlFor="endDate">End Date</Label>
+                      <Input
+                        id="endDate"
+                        type="text"
+                        placeholder="MM/DD/YYYY"
+                        value={logDateFilter.endDate}
+                        onChange={(e) => handleDateFilterInput('endDate', e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => setLogDateFilter({ startDate: '', endDate: '' })}
+                    >
+                      Clear Filter
+                    </Button>
+                  </div>
+
+                  {/* Logs Display */}
+                  <div className="border rounded-lg">
+                    {logsLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="flex items-center gap-2 text-gray-600">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-600"></div>
+                          <span>Loading logs...</span>
+                        </div>
+                      </div>
+                    ) : logsError ? (
+                      <div className="p-8 text-center">
+                        <p className="text-red-600">{logsError}</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-auto max-h-[600px]">
+                        {activeLogCategory === 'access' && (
+                          <div>
+                            {(() => {
+                              const filteredLogs = accessLogs.filter((log) => {
+                                if (!logDateFilter.startDate && !logDateFilter.endDate) return true;
+                                const logDate = new Date(log.timestamp);
+                                const start = parseDateFilterValue(logDateFilter.startDate);
+                                const end = parseDateFilterValue(logDateFilter.endDate, { endOfDay: true });
+                                if (start && logDate < start) return false;
+                                if (end && logDate > end) return false;
+                                return true;
+                              });
+
+                              return filteredLogs.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">
+                                  No access logs found for the selected date range
+                                </div>
+                              ) : (
+                                <div className="divide-y">
+                                  {filteredLogs.map((log) => (
+                                    <div key={log.id} className="p-4 hover:bg-gray-50">
+                                      <div className="flex items-start justify-between">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-3">
+                                            <Badge 
+                                              variant={
+                                                log.result === 'Granted' 
+                                                  ? 'default' 
+                                                  : log.result === 'Denied (inactive)' 
+                                                  ? 'destructive' 
+                                                  : 'secondary'
+                                              }
+                                            >
+                                              {log.result}
+                                            </Badge>
+                                            <span className="font-medium text-gray-900">
+                                              {log.readerRole === 'Entry' ? '📥 Entry' : '📤 Exit'}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-600 space-y-1">
+                                            <p><span className="font-medium">UID:</span> {log.uid}</p>
+                                            <p><span className="font-medium">Reader:</span> {log.reader !== null ? log.reader : 'N/A'}</p>
+                                            <p><span className="font-medium">Device IP:</span> {log.deviceIP}</p>
+                                          </div>
+                                        </div>
+                                        <div className="text-right text-sm text-gray-500">
+                                          <p>{formatLogDate(log.timestamp)}</p>
+                                          <p>{formatLogTime(log.timestamp)}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+
+                        {activeLogCategory === 'attendance' && (
+                          <div>
+                            {(() => {
+                              const filteredLogs = attendanceLogs.filter((log) => {
+                                if (!logDateFilter.startDate && !logDateFilter.endDate) return true;
+                                const logDate = new Date(log.timestamp);
+                                const start = parseDateFilterValue(logDateFilter.startDate);
+                                const end = parseDateFilterValue(logDateFilter.endDate, { endOfDay: true });
+                                if (start && logDate < start) return false;
+                                if (end && logDate > end) return false;
+                                return true;
+                              });
+
+                              return filteredLogs.length === 0 ? (
+                                <div className="p-8 text-center text-gray-500">
+                                  No attendance logs found for the selected date range
+                                </div>
+                              ) : (
+                                <div className="divide-y">
+                                  {filteredLogs.map((log) => (
+                                    <div key={log.id} className="p-4 hover:bg-gray-50">
+                                      <div className="flex items-start justify-between">
+                                        <div className="space-y-1">
+                                          <div className="flex items-center gap-3">
+                                            <Badge variant={log.action === 'entry' ? 'default' : 'secondary'}>
+                                              {log.action === 'entry' ? '📥 Entry' : '📤 Exit'}
+                                            </Badge>
+                                            <span className="font-medium text-gray-900">
+                                              {log.teacherId}
+                                            </span>
+                                          </div>
+                                          <div className="text-sm text-gray-600 space-y-1">
+                                            <p><span className="font-medium">Reader ID:</span> {log.readerId !== null ? log.readerId : 'N/A'}</p>
+                                            <p><span className="font-medium">Device IP:</span> {log.deviceIP}</p>
+                                            <p><span className="font-medium">Status:</span> {log.currentStatus}</p>
+                                          </div>
+                                        </div>
+                                        <div className="text-right text-sm text-gray-500">
+                                          <p>{formatLogDate(log.timestamp)}</p>
+                                          <p>{formatLogTime(log.timestamp)}</p>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Stats Summary */}
+                  <div className="grid grid-cols-3 gap-4">
+                    {activeLogCategory === 'access' && (
+                      <>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Total Access Logs</p>
+                          <p className="text-2xl font-semibold text-gray-900 mt-1">{accessLogs.length}</p>
+                        </div>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Granted</p>
+                          <p className="text-2xl font-semibold text-green-600 mt-1">
+                            {accessLogs.filter(log => log.result === 'Granted').length}
+                          </p>
+                        </div>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Denied</p>
+                          <p className="text-2xl font-semibold text-red-600 mt-1">
+                            {accessLogs.filter(log => log.result !== 'Granted').length}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                    {activeLogCategory === 'attendance' && (
+                      <>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Total Attendance Logs</p>
+                          <p className="text-2xl font-semibold text-gray-900 mt-1">{attendanceLogs.length}</p>
+                        </div>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Entries</p>
+                          <p className="text-2xl font-semibold text-blue-600 mt-1">
+                            {attendanceLogs.filter(log => log.action === 'entry').length}
+                          </p>
+                        </div>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Exits</p>
+                          <p className="text-2xl font-semibold text-gray-600 mt-1">
+                            {attendanceLogs.filter(log => log.action === 'exit').length}
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
           
           {/* === Admin Hardware Settings (only for admin when currentPage === "hardware") === */}
           {(isAdminLoggedIn || isFailsafeMode) && currentPage === "hardware" && (
@@ -2574,38 +2964,37 @@ export default function App() {
                     </Button>
                   </div>
 
-                  {/* Compact Status Cards Row */}
-<div className="flex gap-4 w-full max-w-2xl">
-  {/* Connection Status */}
-  <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
-    <div className="text-left">
-      <p className="text-sm font-medium text-gray-900">Connection Status</p>
-      <p className="text-xs text-gray-500">
-        {isConnected ? "Connected" : "No Connection"}
-      </p>
-    </div>
-    <Button 
-      variant="outline" 
-      size="sm" 
-      onClick={handleCheckConnection}
-      className="text-xs py-1 px-2"
-    >
-      Check Connection
-    </Button>
-  </div>
+                  {/* Connection Status & Serial Monitor */}
+                  <div className="flex gap-4 w-full max-w-2xl">
+                    {/* Connection Status */}
+                    <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
+                      <div className="text-left">
+                        <p className="text-sm font-medium text-gray-900">Connection Status</p>
+                        <p className="text-xs text-gray-500">
+                          {isConnected ? "Connected" : "No Connection"}
+                        </p>
+                      </div>
+                      <Button 
+                        variant="outline" 
+                        size="sm" 
+                        onClick={handleCheckConnection}
+                        className="text-xs py-1 px-2"
+                      >
+                        Check Connection
+                      </Button>
+                    </div>
 
-  {/* Battery Percentage */}
-  <div className="flex-1 p-4 border rounded-lg flex items-center justify-between">
-  <div className="text-left">
-      <p className="text-sm font-medium text-gray-900">Battery Percentage</p>
-    </div>
-    <div className="text-right">
-      <p className="text-lg font-medium text-gray-900">
-        {backupBatteryPercent === null ? 'Unknown' : `${backupBatteryPercent}%`}
-      </p>
-    </div>
-  </div>
-</div>
+                    {/* Serial Monitor */}
+                    <div className="flex-1 p-4 border rounded-lg bg-black/95 text-green-400 font-mono text-xs h-48 overflow-y-auto">
+                      {serialLogs.length === 0 ? (
+                        <div className="text-gray-400">No messages yet. Waiting for device output...</div>
+                      ) : (
+                        serialLogs.map((line, idx) => (
+                          <div key={idx} className="whitespace-pre-wrap break-words">{line}</div>
+                        ))
+                      )}
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             </>

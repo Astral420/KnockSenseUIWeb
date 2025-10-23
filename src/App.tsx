@@ -2959,85 +2959,54 @@ export default function App() {
                         No archived teachers found.
                       </div>
                     ) : (
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {archivedTeachers.map((teacher: any) => (
                           <div
                             key={teacher.uid}
-                            className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
+                            className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm"
                           >
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-base font-semibold text-gray-900">
-                                    {teacher.displayName || 'Unknown Teacher'}
-                                  </h4>
-                                  {teacher.email && (
-                                    <Badge variant="outline" className="text-xs">
-                                      {teacher.email}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-500">
-                                  <span>Teacher UID: <span className="font-medium text-gray-700">{teacher.teacherUid || teacher.uid}</span></span>
-                                  {teacher.teacherID && (
-                                    <span>Faculty ID: <span className="font-medium text-gray-700">{teacher.teacherID}</span></span>
-                                  )}
-                                  <span>Deleted At: <span className="font-medium text-gray-700">{formatDeletedAt(teacher.deletedAt)}</span></span>
-                                  <span>Deleted By: <span className="font-medium text-gray-700">{teacher.deletedBy || 'Unknown'}</span></span>
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3 text-xs">
-                                {teacher.rfidUid ? (
-                                  <div className="px-3 py-1 bg-gray-100 rounded-full text-gray-700">
-                                    RFID: {teacher.rfidUid}
-                                  </div>
-                                ) : (
-                                  <div className="px-3 py-1 bg-gray-50 rounded-full text-gray-400">
-                                    No RFID assigned
-                                  </div>
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex-1">
+                                <h4 className="text-base font-semibold text-gray-900">
+                                  {teacher.displayName || 'Unknown Teacher'}
+                                </h4>
+                                {teacher.email && (
+                                  <p className="text-sm text-gray-500 mt-0.5">{teacher.email}</p>
                                 )}
-                                <div className="px-3 py-1 bg-gray-100 rounded-full text-gray-700">
-                                  Archived
-                                </div>
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={(event) => event.stopPropagation()}
-                                      disabled={archivedLoading}
-                                      className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                              </div>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={(event) => event.stopPropagation()}
+                                    disabled={archivedLoading}
+                                    className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                  >
+                                    Restore
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Restore Teacher Account</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      This will move <b>{teacher.displayName || 'this teacher'}</b> back to the active faculty list.
+                                      Their previous profile and RFID assignments will be reinstated.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                    <AlertDialogAction
+                                      onClick={() => handleRestoreArchivedTeacher(teacher.uid)}
+                                      className="bg-blue-600 hover:bg-blue-700"
                                     >
-                                      Restore
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Restore Teacher Account</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        This will move <b>{teacher.displayName || 'this teacher'}</b> back to the active faculty list.
-                                        Their previous profile and RFID assignments will be reinstated.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleRestoreArchivedTeacher(teacher.uid)}
-                                        className="bg-blue-600 hover:bg-blue-700"
-                                      >
-                                        Confirm Restore
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              </div>
+                                      Confirm Restore
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
                             </div>
-                            {teacher.teacherData?.reason && (
-                              <div className="mt-3 text-xs text-gray-500">
-                                Reason: <span className="italic">{teacher.teacherData.reason}</span>
-                              </div>
-                            )}
-                            <details className="mt-4 text-sm text-gray-600">
+                            <details className="text-sm text-gray-600">
                               <summary className="cursor-pointer select-none text-gray-700 font-medium">
                                 View raw snapshot
                               </summary>

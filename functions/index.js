@@ -185,7 +185,15 @@ exports.deleteTeacherAccount = onCall(
       const userSnapshot = await db.ref(`users/${teacherUid}`).once('value');
       const userData = userSnapshot.val();
 
-      await auth.deleteUser(teacherUid);
+      try {
+        await auth.deleteUser(teacherUid);
+      } catch (authError) {
+        if (authError?.code === 'auth/user-not-found') {
+          console.warn(`Auth user ${teacherUid} not found during deletion; continuing cleanup.`);
+        } else {
+          throw authError;
+        }
+      }
 
       const deletionTimestamp = new Date().toISOString();
       const archivedRecord = {

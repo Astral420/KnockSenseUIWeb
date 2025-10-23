@@ -36,7 +36,7 @@ import {
 } from "./components/ui/dialog";
 import { Label } from "./components/ui/label";
 import { Switch } from "./components/ui/switch";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { teacherService } from './components/backend/TeacherService';
 
 import authService from './components/backend/auth/AuthService';
@@ -85,6 +85,13 @@ const ADMIN_PERMISSION_DEFAULTS: Record<AdminPermissionKey, boolean> = {
   seeAccessLogs: false,
   seeAttendanceLogs: false,
   changeWifiInformation: false,
+};
+
+const SUPER_ADMIN_PERMISSIONS: Record<AdminPermissionKey, boolean> = {
+  removeTeacherAccounts: true,
+  seeAccessLogs: true,
+  seeAttendanceLogs: true,
+  changeWifiInformation: true,
 };
 
 // Listening to Firebase `teacher` node to hydrate faculty members
@@ -177,6 +184,9 @@ export default function App() {
   const [adminAccounts, setAdminAccounts] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
   const [updatingPermissionKey, setUpdatingPermissionKey] = useState<string | null>(null);
+  const [archivedTeachers, setArchivedTeachers] = useState([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+  const [archivedError, setArchivedError] = useState('');
   
   const [rfidTags, setRfidTags] = useState([]);
   const [rfidLoading, setRfidLoading] = useState(true);
@@ -193,6 +203,8 @@ export default function App() {
   const [selectedFacultyForMeeting, setSelectedFacultyForMeeting] = useState(null);
   const [verificationStudentNumber, setVerificationStudentNumber] = useState('');
   const [appointmentNote, setAppointmentNote] = useState('');
+
+  const [adminPermissions, setAdminPermissions] = useState<Record<AdminPermissionKey, boolean>>(ADMIN_PERMISSION_DEFAULTS);
 
   // Logs state
   const [accessLogs, setAccessLogs] = useState([]);
@@ -218,6 +230,21 @@ export default function App() {
     const date = new Date(timestamp);
     if (isNaN(date.getTime())) return 'N/A';
     return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: true,
+    });
+  };
+
+  const formatDeletedAt = (value?: string | number | null) => {
+    if (!value) return 'Unknown';
+    const date = new Date(value);
+    if (isNaN(date.getTime())) return 'Unknown';
+    return date.toLocaleString('en-US', {
+      month: '2-digit',
+      day: '2-digit',
+      year: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
       second: '2-digit',
@@ -274,6 +301,67 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (!user || isFailsafeMode) {
+      setAdminPermissions(ADMIN_PERMISSION_DEFAULTS);
+      return;
+    }
+
+    if (isSuperAdmin) {
+      setAdminPermissions(SUPER_ADMIN_PERMISSIONS);
+      return;
+    }
+
+    if (!isAdminLoggedIn) {
+      setAdminPermissions(ADMIN_PERMISSION_DEFAULTS);
+      return;
+    }
+
+    let active = true;
+
+    authService
+      .getAdminPermissions(user.uid)
+      .then((permissions) => {
+        if (!active) return;
+        setAdminPermissions({
+          ...ADMIN_PERMISSION_DEFAULTS,
+          ...(permissions || {}),
+        });
+      })
+      .catch(() => {
+        if (!active) return;
+        setAdminPermissions(ADMIN_PERMISSION_DEFAULTS);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, isAdminLoggedIn, isSuperAdmin, isFailsafeMode]);
+
+  const can = useCallback(
+    (permission: AdminPermissionKey) => {
+      if (isSuperAdmin || isFailsafeMode) return true;
+      return !!adminPermissions[permission];
+    },
+    [adminPermissions, isSuperAdmin, isFailsafeMode],
+  );
+
+  const canSeeAccessLogs = can("seeAccessLogs");
+  const canSeeAttendanceLogs = can("seeAttendanceLogs");
+  const canChangeWifiInformation = can("changeWifiInformation");
+
+  useEffect(() => {
+    if (!canSeeAttendanceLogs && activeLogCategory === 'attendance') {
+      if (canSeeAccessLogs) {
+        setActiveLogCategory('access');
+      }
+    } else if (!canSeeAccessLogs && activeLogCategory === 'access') {
+      if (canSeeAttendanceLogs) {
+        setActiveLogCategory('attendance');
+      }
+    }
+  }, [canSeeAccessLogs, canSeeAttendanceLogs, activeLogCategory]);
 
   // Initialize timeout state from localStorage on component mount
   useEffect(() => {
@@ -550,6 +638,10 @@ export default function App() {
   };
 
   const handleSaveWifiConfig = () => {
+    if (!canChangeWifiInformation) {
+      toast.error('You do not have permission to change WiFi settings.');
+      return;
+    }
     espWebSocket.sendWifiConfig(ssid, wifiPassword);
     toast.success(`WiFi Config Saved! The page will refresh to apply changes.`);
     
@@ -945,6 +1037,11 @@ export default function App() {
   };
 
   const handleRemoveFaculty = async (facultyId) => {
+    if (!isSuperAdmin && !adminPermissions.removeTeacherAccounts) {
+      toast.error('You do not have permission to remove teacher accounts.');
+      return;
+    }
+
     if (isSuperAdmin) {
       // Super admin can actually delete teacher accounts
       try {
@@ -955,6 +1052,7 @@ export default function App() {
         setFacultyMembers((prev) =>
           prev.filter((faculty) => faculty.id !== facultyId),
         );
+        await loadArchivedTeachers();
       } catch (error) {
         console.error('Error deleting teacher:', error);
         toast.error('Failed to delete teacher account: ' + error);
@@ -1040,11 +1138,52 @@ export default function App() {
             : admin,
         ),
       );
+      if (user?.uid === adminUid && !isSuperAdmin) {
+        setAdminPermissions((prev) => ({
+          ...ADMIN_PERMISSION_DEFAULTS,
+          ...prev,
+          [permissionKey]: value,
+        }));
+      }
     } catch (error) {
       console.error('Error updating admin permission:', error);
       toast.error('Failed to update permission');
     } finally {
       setUpdatingPermissionKey(null);
+    }
+  };
+
+  const loadArchivedTeachers = async () => {
+    try {
+      setArchivedLoading(true);
+      setArchivedError('');
+      const teachers = await authService.getArchivedTeachers();
+      setArchivedTeachers(teachers);
+    } catch (error) {
+      console.error('Error loading archived teachers:', error);
+      setArchivedError('Failed to load archived teachers.');
+    } finally {
+      setArchivedLoading(false);
+    }
+  };
+
+  const handleRestoreArchivedTeacher = async (teacherUid: string) => {
+    if (!isSuperAdmin) {
+      toast.error('Only super admins can restore archived teachers.');
+      return;
+    }
+
+    try {
+      setArchivedLoading(true);
+      const result = await authService.restoreArchivedTeacher(teacherUid);
+      toast.success(result.message || 'Teacher restored successfully.');
+      await loadArchivedTeachers();
+    } catch (error: any) {
+      console.error('Error restoring archived teacher:', error);
+      const message = error?.message || 'Failed to restore archived teacher.';
+      toast.error(message);
+    } finally {
+      setArchivedLoading(false);
     }
   };
 
@@ -1058,12 +1197,7 @@ export default function App() {
           if (admin.role === 'super_admin') {
             return {
               ...admin,
-              permissions: {
-                removeTeacherAccounts: true,
-                seeAccessLogs: true,
-                seeAttendanceLogs: true,
-                changeWifiInformation: true,
-              },
+              permissions: { ...SUPER_ADMIN_PERMISSIONS },
             };
           }
           try {
@@ -1151,6 +1285,7 @@ export default function App() {
   useEffect(() => {
     if (isSuperAdmin && currentPage === "admin-management") {
       loadAdminAccounts();
+      loadArchivedTeachers();
     }
   }, [isSuperAdmin, currentPage]);
 
@@ -1311,8 +1446,8 @@ export default function App() {
                   </button>
                 )}
 
-                {/* Logs Button - Only for Super Admin */}
-                {isSuperAdmin && (
+                {/* Logs Button - Respect permissions */}
+                {(isSuperAdmin || can("seeAccessLogs") || can("seeAttendanceLogs")) && (
                   <button
                     onClick={() => setCurrentPage("logs")}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg ${
@@ -1957,7 +2092,7 @@ export default function App() {
                           {/* Fallback pattern if image doesn't exist */}
                           <div className="w-16 h-16 bg-gray-100 border border-gray-200 rounded flex items-center justify-center" style={{ display: 'none' }}>
                             <div className="text-xs text-gray-500 text-center">
-                              QR Code<br/>1024x1024<br/>PNG
+                              QR Code<br/>520x520<br/>PNG
                             </div>
                           </div>
                         </div>
@@ -2221,7 +2356,7 @@ export default function App() {
                                       This will remove{" "}
                                       <b>{faculty.name}</b> from the local faculty list.
                                       <br /><br />
-                                      <strong>Note:</strong> Only super admins can permanently delete teacher accounts.
+                                      <strong>Note:</strong> Only super admins can permanently delete teacher accounts, unless given permission.
                                     </>
                                   )}
                                 </AlertDialogDescription>
@@ -2676,7 +2811,7 @@ export default function App() {
                   {/* Admin Accounts List */}
                   <div className="border rounded-lg p-6">
                     <h3 className="text-lg font-semibold mb-4">Admin Accounts</h3>
-                    
+
                     {adminLoading ? (
                       <div className="flex items-center justify-center py-4">
                         <div className="flex items-center gap-2 text-gray-600">
@@ -2790,13 +2925,149 @@ export default function App() {
                       </div>
                     )}
                   </div>
+
+                  {/* Archived Teacher Accounts */}
+                  <div className="border rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold">Archived Teacher Accounts</h3>
+                        <p className="text-sm text-gray-500">History of deleted teachers retained for audit.</p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={loadArchivedTeachers}
+                        className="flex items-center gap-2"
+                      >
+                        <span>Refresh</span>
+                      </Button>
+                    </div>
+
+                    {archivedLoading ? (
+                      <div className="flex items-center justify-center py-6 text-gray-600">
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                          <span>Loading archived teachers...</span>
+                        </div>
+                      </div>
+                    ) : archivedError ? (
+                      <div className="p-4 bg-red-50 text-red-600 rounded-md text-sm">
+                        {archivedError}
+                      </div>
+                    ) : archivedTeachers.length === 0 ? (
+                      <div className="p-4 text-sm text-gray-500 border border-dashed rounded-md">
+                        No archived teachers found.
+                      </div>
+                    ) : (
+                      <div className="space-y-4">
+                        {archivedTeachers.map((teacher: any) => (
+                          <div
+                            key={teacher.uid}
+                            className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm"
+                          >
+                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <h4 className="text-base font-semibold text-gray-900">
+                                    {teacher.displayName || 'Unknown Teacher'}
+                                  </h4>
+                                  {teacher.email && (
+                                    <Badge variant="outline" className="text-xs">
+                                      {teacher.email}
+                                    </Badge>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-500">
+                                  <span>Teacher UID: <span className="font-medium text-gray-700">{teacher.teacherUid || teacher.uid}</span></span>
+                                  {teacher.teacherID && (
+                                    <span>Faculty ID: <span className="font-medium text-gray-700">{teacher.teacherID}</span></span>
+                                  )}
+                                  <span>Deleted At: <span className="font-medium text-gray-700">{formatDeletedAt(teacher.deletedAt)}</span></span>
+                                  <span>Deleted By: <span className="font-medium text-gray-700">{teacher.deletedBy || 'Unknown'}</span></span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3 text-xs">
+                                {teacher.rfidUid ? (
+                                  <div className="px-3 py-1 bg-gray-100 rounded-full text-gray-700">
+                                    RFID: {teacher.rfidUid}
+                                  </div>
+                                ) : (
+                                  <div className="px-3 py-1 bg-gray-50 rounded-full text-gray-400">
+                                    No RFID assigned
+                                  </div>
+                                )}
+                                <div className="px-3 py-1 bg-gray-100 rounded-full text-gray-700">
+                                  Archived
+                                </div>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={(event) => event.stopPropagation()}
+                                      disabled={archivedLoading}
+                                      className="text-blue-600 border-blue-200 hover:bg-blue-50"
+                                    >
+                                      Restore
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Restore Teacher Account</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                        This will move <b>{teacher.displayName || 'this teacher'}</b> back to the active faculty list.
+                                        Their previous profile and RFID assignments will be reinstated.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleRestoreArchivedTeacher(teacher.uid)}
+                                        className="bg-blue-600 hover:bg-blue-700"
+                                      >
+                                        Confirm Restore
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                              </div>
+                            </div>
+                            {teacher.teacherData?.reason && (
+                              <div className="mt-3 text-xs text-gray-500">
+                                Reason: <span className="italic">{teacher.teacherData.reason}</span>
+                              </div>
+                            )}
+                            <details className="mt-4 text-sm text-gray-600">
+                              <summary className="cursor-pointer select-none text-gray-700 font-medium">
+                                View raw snapshot
+                              </summary>
+                              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                <div className="bg-gray-50 rounded-md p-3">
+                                  <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Teacher Data</h5>
+                                  <pre className="text-xs text-gray-700 whitespace-pre-wrap">
+{JSON.stringify(teacher.teacherData || {}, null, 2)}
+                                  </pre>
+                                </div>
+                                <div className="bg-gray-50 rounded-md p-3">
+                                  <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">User Data</h5>
+                                  <pre className="text-xs text-gray-700 whitespace-pre-wrap">
+{JSON.stringify(teacher.userData || {}, null, 2)}
+                                  </pre>
+                                </div>
+                              </div>
+                            </details>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </>
           )}
 
-          {/* === Logs Page (only for super admin when currentPage === "logs") === */}
-          {isSuperAdmin && currentPage === "logs" && (
+          {/* === Logs Page (only for allowed admins when currentPage === "logs") === */}
+          {(isSuperAdmin || can("seeAccessLogs") || can("seeAttendanceLogs")) && currentPage === "logs" && (
             <>
               <Card>
                 <CardHeader>
@@ -2812,26 +3083,30 @@ export default function App() {
                 <CardContent className="space-y-6">
                   {/* Category Tabs */}
                   <div className="flex gap-2 border-b">
-                    <button
-                      onClick={() => setActiveLogCategory('access')}
-                      className={`px-4 py-2 font-medium transition-colors ${
-                        activeLogCategory === 'access'
-                          ? 'text-blue-600 border-b-2 border-blue-600'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      Access Logs
-                    </button>
-                    <button
-                      onClick={() => setActiveLogCategory('attendance')}
-                      className={`px-4 py-2 font-medium transition-colors ${
-                        activeLogCategory === 'attendance'
-                          ? 'text-blue-600 border-b-2 border-blue-600'
-                          : 'text-gray-600 hover:text-gray-900'
-                      }`}
-                    >
-                      Attendance Logs
-                    </button>
+                    {canSeeAccessLogs && (
+                      <button
+                        onClick={() => setActiveLogCategory('access')}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          activeLogCategory === 'access'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        Access Logs
+                      </button>
+                    )}
+                    {canSeeAttendanceLogs && (
+                      <button
+                        onClick={() => setActiveLogCategory('attendance')}
+                        className={`px-4 py-2 font-medium transition-colors ${
+                          activeLogCategory === 'attendance'
+                            ? 'text-blue-600 border-b-2 border-blue-600'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        Attendance Logs
+                      </button>
+                    )}
                   </div>
 
                   {/* Date Range Filter */}
@@ -2877,7 +3152,7 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="overflow-auto max-h-[600px]">
-                        {activeLogCategory === 'access' && (
+                        {canSeeAccessLogs && activeLogCategory === 'access' && (
                           <div>
                             {(() => {
                               const filteredLogs = accessLogs.filter((log) => {
@@ -2935,7 +3210,7 @@ export default function App() {
                           </div>
                         )}
 
-                        {activeLogCategory === 'attendance' && (
+                        {canSeeAttendanceLogs && activeLogCategory === 'attendance' && (
                           <div>
                             {(() => {
                               const filteredLogs = attendanceLogs.filter((log) => {
@@ -2990,7 +3265,7 @@ export default function App() {
 
                   {/* Stats Summary */}
                   <div className="grid grid-cols-3 gap-4">
-                    {activeLogCategory === 'access' && (
+                    {canSeeAccessLogs && activeLogCategory === 'access' && (
                       <>
                         <div className="p-4 border rounded-lg">
                           <p className="text-sm text-gray-600">Total Access Logs</p>
@@ -3010,7 +3285,7 @@ export default function App() {
                         </div>
                       </>
                     )}
-                    {activeLogCategory === 'attendance' && (
+                    {canSeeAttendanceLogs && activeLogCategory === 'attendance' && (
                       <>
                         <div className="p-4 border rounded-lg">
                           <p className="text-sm text-gray-600">Total Attendance Logs</p>
@@ -3061,6 +3336,7 @@ export default function App() {
                         onChange={(e) =>
                           setSsid(e.target.value)
                         }
+                        disabled={!canChangeWifiInformation}
                       />
                     </div>
                     <div>
@@ -3075,11 +3351,36 @@ export default function App() {
                         onChange={(e) =>
                           setWifiPassword(e.target.value)
                         }
+                        disabled={!canChangeWifiInformation}
                       />
                     </div>
-                    <Button onClick={handleSaveWifiConfig}>
-                      Save Configuration
-                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button disabled={!canChangeWifiInformation}>
+                          Save Configuration
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Save WiFi Configuration</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            {canChangeWifiInformation
+                              ? 'Are you sure you want to update the WiFi SSID and password? This will restart connectivity checks.'
+                              : 'You do not have permission to change WiFi configuration. Contact a super admin for access.'}
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          {canChangeWifiInformation && (
+                            <AlertDialogAction
+                              onClick={handleSaveWifiConfig}
+                            >
+                              Confirm Save
+                            </AlertDialogAction>
+                          )}
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
                   </div>
 
                   {/* Connection Status & Serial Monitor */}
@@ -3102,15 +3403,21 @@ export default function App() {
                       </Button>
                     </div>
 
-                    {/* Serial Monitor */}
-                    <div className="flex-1 p-4 border rounded-lg bg-black/95 text-green-400 font-mono text-xs h-48 overflow-y-auto">
-                      {serialLogs.length === 0 ? (
-                        <div className="text-gray-400">No messages yet. Waiting for device output...</div>
-                      ) : (
-                        serialLogs.map((line, idx) => (
-                          <div key={idx} className="whitespace-pre-wrap break-words">{line}</div>
-                        ))
-                      )}
+                    {/* WebSerial Access */}
+                    <div className="flex-1 p-4 border rounded-lg flex flex-col gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-800">WebSerial Monitor</h3>
+                        <p className="text-xs text-gray-500">Open the live device console in a new tab.</p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          const url = `${window.location.protocol}//${window.location.host}/webserial`;
+                          window.open(url, '_blank');
+                        }}
+                      >
+                        Go to WebSerial Monitor
+                      </Button>
                     </div>
                   </div>
                 </CardContent>

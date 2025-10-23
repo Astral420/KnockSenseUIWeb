@@ -248,6 +248,31 @@ export const authService = {
     }
   },
 
+  getArchivedTeachers: async () => {
+    try {
+      const getArchived = httpsCallable(functions, 'getArchivedTeachers');
+      const result = await getArchived();
+      return result.data?.archivedTeachers || [];
+    } catch (error) {
+      console.error('Error fetching archived teachers:', error);
+      throw error;
+    }
+  },
+
+  restoreArchivedTeacher: async (teacherUid) => {
+    try {
+      const restoreTeacher = httpsCallable(functions, 'restoreArchivedTeacher');
+      const result = await restoreTeacher({
+        teacherUid,
+        restoredBy: auth.currentUser?.uid,
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Error restoring archived teacher:', error);
+      throw error;
+    }
+  },
+
   getAdminAccounts: async () => {
     try {
       const getAdmins = httpsCallable(functions, 'getAdminAccounts');

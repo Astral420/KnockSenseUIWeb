@@ -9,7 +9,7 @@ import {
   onAuthStateChanged 
 } from "firebase/auth";
 // ADDED: Import Realtime Database functions
-import { getDatabase, ref, get } from "firebase/database";
+import { getDatabase, ref, get, update, set } from "firebase/database";
 // ADDED: Import Cloud Functions
 import { getFunctions, httpsCallable } from "firebase/functions"; 
 
@@ -30,6 +30,13 @@ const auth = getAuth(app);
 const db = getDatabase(app); // ADDED: Initialize database
 // Point client to the same region where functions are deployed
 const functions = getFunctions(app, 'asia-southeast1'); // ADDED: Initialize Cloud Functions in region
+
+const DEFAULT_ADMIN_PERMISSIONS = {
+  removeTeacherAccounts: false,
+  seeAccessLogs: false,
+  seeAttendanceLogs: false,
+  changeWifiInformation: false,
+};
 
 // Microsoft OAuth provider
 const microsoftProvider = new OAuthProvider('microsoft.com');
@@ -193,7 +200,20 @@ export const authService = {
         displayName,
         createdBy: auth.currentUser?.uid
       });
-      return result.data;
+      const data = result?.data || {};
+      const adminUid = data.adminUid || data.uid || data.userId;
+
+      if (adminUid) {
+        try {
+          await authService.setAdminPermissions(adminUid, DEFAULT_ADMIN_PERMISSIONS);
+        } catch (permissionError) {
+          console.warn('Failed to seed default admin permissions:', permissionError);
+        }
+      } else {
+        console.warn('createAdminAccount: Admin UID not returned from function, skipping default permissions seeding.', data);
+      }
+
+      return data;
     } catch (error) {
       console.error('Error creating admin account:', error);
       throw error;
@@ -235,6 +255,42 @@ export const authService = {
       return result.data;
     } catch (error) {
       console.error('Error getting admin accounts:', error);
+      throw error;
+    }
+  },
+
+  getAdminPermissions: async (adminUid) => {
+    try {
+      const permissionsRef = ref(db, `roles/admin/${adminUid}/permissions`);
+      const snapshot = await get(permissionsRef);
+      if (snapshot.exists()) {
+        return snapshot.val();
+      }
+      return {};
+    } catch (error) {
+      console.error('Error fetching admin permissions:', error);
+      throw error;
+    }
+  },
+
+  updateAdminPermission: async (adminUid, permissionKey, value) => {
+    try {
+      const permissionsRef = ref(db, `roles/admin/${adminUid}/permissions`);
+      await update(permissionsRef, { [permissionKey]: value });
+      return { success: true };
+    } catch (error) {
+      console.error('Error updating admin permission:', error);
+      throw error;
+    }
+  },
+
+  setAdminPermissions: async (adminUid, permissions) => {
+    try {
+      const permissionsRef = ref(db, `roles/admin/${adminUid}/permissions`);
+      await set(permissionsRef, permissions);
+      return { success: true };
+    } catch (error) {
+      console.error('Error setting admin permissions:', error);
       throw error;
     }
   }

@@ -14,6 +14,7 @@ import {
   Smartphone,
   UserX,
   FileText,
+  ChevronDown,
 } from "lucide-react";
 import { Input } from "./components/ui/input";
 import { Badge } from "./components/ui/badge";
@@ -57,6 +58,34 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "./components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
+
+type AdminPermissionKey =
+  | "removeTeacherAccounts"
+  | "seeAccessLogs"
+  | "seeAttendanceLogs"
+  | "changeWifiInformation";
+
+const ADMIN_PERMISSION_OPTIONS: { key: AdminPermissionKey; label: string }[] = [
+  { key: "removeTeacherAccounts", label: "Remove Teacher Accounts" },
+  { key: "seeAccessLogs", label: "See Access Logs" },
+  { key: "seeAttendanceLogs", label: "See Attendance Logs" },
+  { key: "changeWifiInformation", label: "Change WiFi Information" },
+];
+
+const ADMIN_PERMISSION_DEFAULTS: Record<AdminPermissionKey, boolean> = {
+  removeTeacherAccounts: false,
+  seeAccessLogs: false,
+  seeAttendanceLogs: false,
+  changeWifiInformation: false,
+};
 
 // Listening to Firebase `teacher` node to hydrate faculty members
 // Expected teacher shape:
@@ -147,6 +176,7 @@ export default function App() {
   const [newAdminName, setNewAdminName] = useState("");
   const [adminAccounts, setAdminAccounts] = useState([]);
   const [adminLoading, setAdminLoading] = useState(false);
+  const [updatingPermissionKey, setUpdatingPermissionKey] = useState<string | null>(null);
   
   const [rfidTags, setRfidTags] = useState([]);
   const [rfidLoading, setRfidLoading] = useState(true);
@@ -615,6 +645,12 @@ export default function App() {
       toast.error('The student number entered does not match your account.');
       return;
     }
+
+    const trimmedAppointmentNote = appointmentNote.trim();
+    if (!trimmedAppointmentNote) {
+      toast.error('Please add a note for the faculty member.');
+      return;
+    }
     
     setAppointmentLoading(true);
     setAppointmentError('');
@@ -637,7 +673,7 @@ export default function App() {
       const result = await appointmentService.createAppointment(
         studentData,
         teacherData,
-        appointmentNote || null
+        trimmedAppointmentNote
       );
       
       if (result.success) {
@@ -980,11 +1016,75 @@ export default function App() {
     }
   };
 
+  const handleToggleAdminPermission = async (
+    adminUid: string,
+    permissionKey: AdminPermissionKey,
+    value: boolean,
+  ) => {
+    if (!adminUid) return;
+    const mutationKey = `${adminUid}:${permissionKey}`;
+    try {
+      setUpdatingPermissionKey(mutationKey);
+      await authService.updateAdminPermission(adminUid, permissionKey, value);
+      setAdminAccounts((prev) =>
+        prev.map((admin: any) =>
+          admin.uid === adminUid
+            ? {
+                ...admin,
+                permissions: {
+                  ...ADMIN_PERMISSION_DEFAULTS,
+                  ...(admin.permissions || {}),
+                  [permissionKey]: value,
+                },
+              }
+            : admin,
+        ),
+      );
+    } catch (error) {
+      console.error('Error updating admin permission:', error);
+      toast.error('Failed to update permission');
+    } finally {
+      setUpdatingPermissionKey(null);
+    }
+  };
+
   const loadAdminAccounts = async () => {
     try {
       setAdminLoading(true);
       const result = await authService.getAdminAccounts();
-      setAdminAccounts([...result.admins, ...result.superAdmins]);
+      const combined = [...result.admins, ...result.superAdmins];
+      const accountsWithPermissions = await Promise.all(
+        combined.map(async (admin) => {
+          if (admin.role === 'super_admin') {
+            return {
+              ...admin,
+              permissions: {
+                removeTeacherAccounts: true,
+                seeAccessLogs: true,
+                seeAttendanceLogs: true,
+                changeWifiInformation: true,
+              },
+            };
+          }
+          try {
+            const permissions = await authService.getAdminPermissions(admin.uid);
+            return {
+              ...admin,
+              permissions: {
+                ...ADMIN_PERMISSION_DEFAULTS,
+                ...(permissions || {}),
+              },
+            };
+          } catch (permissionError) {
+            console.error('Error loading permissions for admin:', admin.uid, permissionError);
+            return {
+              ...admin,
+              permissions: { ...ADMIN_PERMISSION_DEFAULTS },
+            };
+          }
+        }),
+      );
+      setAdminAccounts(accountsWithPermissions);
     } catch (error) {
       console.error('Error loading admin accounts:', error);
       toast.error('Failed to load admin accounts');
@@ -1458,7 +1558,7 @@ export default function App() {
           <DialogHeader>
             <DialogTitle>Request Meeting with {selectedFacultyForMeeting?.name}</DialogTitle>
             <DialogDescription>
-              Enter your student number for verification and add an optional note for the faculty member.
+              Enter your student number for verification and add a required note for the faculty member.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -1509,7 +1609,7 @@ export default function App() {
             
             <div className="grid gap-2">
               <Label htmlFor="appointmentNote">
-                Note (Optional)
+                Note (Required)
               </Label>
               <textarea
                 id="appointmentNote"
@@ -2587,44 +2687,103 @@ export default function App() {
                     ) : adminAccounts.length === 0 ? (
                       <p className="text-gray-500">No admin accounts found.</p>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-6">
                         {adminAccounts.map((admin) => (
-                          <div key={admin.uid} className="flex items-center justify-between p-4 border rounded-lg">
-                            <div className="space-y-1">
-                              <p className="font-medium">{admin.displayName}</p>
-                              <p className="text-sm text-gray-500">{admin.email}</p>
-                              <p className="text-xs text-gray-400">
-                                Role: {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
-                              </p>
-                            </div>
-                            <div className="flex gap-2">
-                              {admin.role !== 'super_admin' && (
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button variant="destructive" size="sm">
-                                      <Trash2 className="w-4 h-4" />
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Delete Admin Account</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                        Are you sure you want to delete the admin account for{" "}
-                                        <b>{admin.displayName}</b>? This action cannot be undone.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleDeleteAdmin(admin.uid)}
-                                        className="bg-red-600 hover:bg-red-700"
+                          <div
+                            key={admin.uid}
+                            className="rounded-lg border border-gray-200 bg-white p-6 hover:shadow-md transition-shadow"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1 space-y-1.5">
+                                <p className="text-lg font-semibold text-gray-900">{admin.displayName}</p>
+                                <p className="text-sm text-gray-600">{admin.email}</p>
+                                <p className="text-xs text-gray-500">
+                                  Role: {admin.role === 'super_admin' ? 'Super Admin' : 'Admin'}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-3 ml-4">
+                                {admin.role !== 'super_admin' ? (
+                                  <DropdownMenu modal={false}>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="flex items-center gap-2 min-w-[130px]"
+                                        onClick={(e) => {
+                                          console.log('Permissions button clicked', admin.uid);
+                                        }}
                                       >
-                                        Delete
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
-                                </AlertDialog>
-                              )}
+                                        Permissions
+                                        <ChevronDown className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent 
+                                      align="end" 
+                                      className="w-64 z-[9999]"
+                                      sideOffset={5}
+                                    >
+                                      <DropdownMenuLabel>Permissions</DropdownMenuLabel>
+                                      <DropdownMenuSeparator />
+                                      {ADMIN_PERMISSION_OPTIONS.map((permission) => {
+                                        const checkboxKey = `${admin.uid}:${permission.key}`;
+                                        return (
+                                          <DropdownMenuCheckboxItem
+                                            key={permission.key}
+                                            checked={!!admin.permissions?.[permission.key]}
+                                            onCheckedChange={(checked) => {
+                                              console.log('Permission toggled:', permission.key, checked);
+                                              handleToggleAdminPermission(
+                                                admin.uid,
+                                                permission.key,
+                                                checked === true,
+                                              );
+                                            }}
+                                            disabled={updatingPermissionKey === checkboxKey}
+                                          >
+                                            {permission.label}
+                                          </DropdownMenuCheckboxItem>
+                                        );
+                                      })}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled
+                                    className="flex items-center gap-2 min-w-[130px] opacity-50 cursor-not-allowed"
+                                  >
+                                    All Permissions
+                                  </Button>
+                                )}
+                                {admin.role !== 'super_admin' && (
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <Button variant="destructive" size="sm">
+                                        <Trash2 className="w-4 h-4" />
+                                      </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete Admin Account</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Are you sure you want to delete the admin account for{" "}
+                                          <b>{admin.displayName}</b>? This action cannot be undone.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction
+                                          onClick={() => handleDeleteAdmin(admin.uid)}
+                                          className="bg-red-600 hover:bg-red-700"
+                                        >
+                                          Delete
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                )}
+                              </div>
                             </div>
                           </div>
                         ))}

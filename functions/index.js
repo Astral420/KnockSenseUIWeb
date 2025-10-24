@@ -97,8 +97,10 @@ exports.createAdminAccount = onCall(
   }
 );
 
-exports.handleTeacherAuthReactivation = functions.auth.user().onCreate(
-  async (user) => {
+exports.handleTeacherAuthReactivation = functions
+  .region('asia-southeast1')
+  .auth.user()
+  .onCreate(async (user) => {
     const email = user.email;
     if (!email) {
       return;
@@ -170,8 +172,7 @@ exports.handleTeacherAuthReactivation = functions.auth.user().onCreate(
       newUid,
       timestamp: new Date().toISOString(),
     });
-  }
-);
+  });
 
 /**
  * Delete an admin account

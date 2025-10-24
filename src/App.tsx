@@ -3254,7 +3254,15 @@ export default function App() {
                         <div className="p-4 border rounded-lg">
                           <p className="text-sm text-gray-600">Denied</p>
                           <p className="text-2xl font-semibold text-red-600 mt-1">
-                            {accessLogs.filter(log => log.result !== 'Granted').length}
+                            {accessLogs.filter(
+                              log => log.result === 'Denied' && log.uid !== 'MANUAL_UNLOCK'
+                            ).length}
+                          </p>
+                        </div>
+                        <div className="p-4 border rounded-lg">
+                          <p className="text-sm text-gray-600">Manual Unlock</p>
+                          <p className="text-2xl font-semibold text-blue-600 mt-1">
+                            {accessLogs.filter(log => log.uid === 'MANUAL_UNLOCK').length}
                           </p>
                         </div>
                       </>

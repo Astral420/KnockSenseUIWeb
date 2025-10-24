@@ -1626,6 +1626,11 @@ export default function App() {
                                   setAdminEmail(e.target.value);
                                   if (loginError) setLoginError(''); // Clear error when user starts typing
                                 }}
+                                autoComplete="off"
+                                autoCorrect="off"
+                                autoCapitalize="off"
+                                spellCheck="false"
+                                data-form-type="other"
                                 className={loginError ? "border-red-300 focus:border-red-500" : ""}
                               />
                             </div>

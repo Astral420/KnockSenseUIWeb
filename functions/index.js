@@ -1,3 +1,4 @@
+const functions = require('firebase-functions/v1');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
@@ -51,7 +52,6 @@ exports.createAdminAccount = onCall(
         displayName: displayName,
         createdAt: new Date().toISOString(),
         createdBy: createdBy,
-        status: 'enrolled',
       });
 
       // Add to users node for consistency
@@ -94,6 +94,82 @@ exports.createAdminAccount = onCall(
         'Failed to create admin account: ' + error.message
       );
     }
+  }
+);
+
+exports.handleTeacherAuthReactivation = functions.auth.user().onCreate(
+  async (user) => {
+    const email = user.email;
+    if (!email) {
+      return;
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+    const emailKey = encodeKey(normalizedEmail);
+    const linkSnapshot = await db
+      .ref(`reactivated_teacher_links/${emailKey}`)
+      .once('value');
+    const link = linkSnapshot.val();
+
+    if (!link?.originalUid) {
+      return;
+    }
+
+    const originalUid = link.originalUid;
+    const newUid = user.uid;
+
+    if (originalUid === newUid) {
+      await db.ref(`reactivated_teacher_links/${emailKey}`).remove();
+      return;
+    }
+
+    const [teacherSnapshot, userSnapshot] = await Promise.all([
+      db.ref(`roles/teacher/${originalUid}`).once('value'),
+      db.ref(`users/${originalUid}`).once('value'),
+    ]);
+
+    const teacherData = teacherSnapshot.val();
+    const userData = userSnapshot.val();
+
+    if (teacherData) {
+      await db.ref(`roles/teacher/${newUid}`).set({
+        ...teacherData,
+        restoredFromUid: originalUid,
+        teacherUid: newUid,
+      });
+    }
+
+    if (userData) {
+      await db.ref(`users/${newUid}`).set({
+        ...userData,
+        uid: newUid,
+        restoredFromUid: originalUid,
+      });
+    }
+
+    const teacherIdForRfid =
+      teacherData?.teacherID ||
+      userData?.teacherID ||
+      link.teacherID ||
+      null;
+
+    if (link.rfidUid && teacherIdForRfid) {
+      await db.ref(`rfid_tags/${link.rfidUid}/assignedTo`).set(teacherIdForRfid);
+    }
+
+    await Promise.all([
+      db.ref(`roles/teacher/${originalUid}`).remove(),
+      db.ref(`users/${originalUid}`).remove(),
+      db.ref(`reactivated_teacher_links/${emailKey}`).remove(),
+    ]);
+
+    await db.ref(`admin_actions/${Date.now()}`).set({
+      action: 'teacher_uid_relinked',
+      email,
+      oldUid: originalUid,
+      newUid,
+      timestamp: new Date().toISOString(),
+    });
   }
 );
 
@@ -209,6 +285,12 @@ exports.deleteTeacherAccount = onCall(
       };
 
       await db.ref(`archived_teachers/${teacherUid}`).set(archivedRecord);
+
+      if (archivedRecord.email) {
+        const normalizedEmail = normalizeEmail(archivedRecord.email);
+        const emailKey = encodeKey(normalizedEmail);
+        await db.ref(`reactivated_teacher_links/${emailKey}`).remove();
+      }
 
       await Promise.all([
         db.ref(`roles/teacher/${teacherUid}`).remove(),
@@ -395,6 +477,9 @@ exports.restoreArchivedTeacher = onCall(
       }
 
       const { teacherData = {}, userData = {}, email, displayName, teacherID, rfidUid } = archivedRecord;
+      const restorationTimestamp = new Date().toISOString();
+      const normalizedEmail = email ? normalizeEmail(email) : null;
+      const emailKey = normalizedEmail ? encodeKey(normalizedEmail) : null;
 
       // Restore teacher role data
       if (Object.keys(teacherData).length > 0) {
@@ -428,11 +513,25 @@ exports.restoreArchivedTeacher = onCall(
         });
       }
 
+      const teacherIdForRfid =
+        teacherData?.teacherID ||
+        userData?.teacherID ||
+        teacherID ||
+        null;
+
       // Restore RFID assignment if present
-      if (rfidUid) {
-        await db.ref(`rfid_tags/${rfidUid}/assignedTo`).set({
-          facultyId: teacherUid,
-          facultyName: displayName || teacherData?.displayName || 'Unknown',
+      if (rfidUid && teacherIdForRfid) {
+        await db.ref(`rfid_tags/${rfidUid}/assignedTo`).set(teacherIdForRfid);
+      }
+
+      if (emailKey) {
+        await db.ref(`reactivated_teacher_links/${emailKey}`).set({
+          originalUid: teacherUid,
+          email,
+          rfidUid: rfidUid || null,
+          teacherID: teacherIdForRfid,
+          restoredAt: restorationTimestamp,
+          normalizedEmail,
         });
       }
 
@@ -472,4 +571,12 @@ async function verifySuperAdmin(uid) {
     console.error('Error verifying super admin status:', error);
     return false;
   }
+}
+
+function normalizeEmail(email) {
+  return (email || '').trim().toLowerCase();
+}
+
+function encodeKey(key) {
+  return (key || '').replace(/[.#$\[\]]/g, '_');
 }

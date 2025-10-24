@@ -46,6 +46,7 @@ import { appointmentService } from './components/backend/AppointmentService';
 import { logService } from './components/backend/LogService';
 import { toast } from "sonner";
 import { Toaster } from "./components/ui/sonner";
+import qrImg from "./assets/qr_img.png";
 
 import {
   AlertDialog,
@@ -2082,7 +2083,7 @@ export default function App() {
                         {/* QR Code Image */}
                         <div className="w-20 h-20 bg-white border-2 border-gray-300 rounded-lg flex items-center justify-center shadow-sm mb-4">
                           <img 
-                            src="src/assets/qr_img.png" 
+                            src={qrImg} 
                             alt="QR Code for KnockSense Mobile App"
                             className="w-16 h-16 object-contain"
                             onError={(e) => {

@@ -9,7 +9,8 @@
     "noImplicitAny": false,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@/features/*": ["src/features/*"]
     },
     "types": ["vite/client"],
     "esModuleInterop": true,

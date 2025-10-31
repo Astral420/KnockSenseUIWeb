@@ -231,13 +231,13 @@ exports.deleteAdminAccount = onCall(
 );
 
 /**
- * Delete a teacher account
+ * Archive a teacher account (soft delete)
  * Only callable by super admins
  */
-exports.deleteTeacherAccount = onCall(
+exports.archiveTeacherAccount = onCall(
   { region: 'asia-southeast1' },
   async (request) => {
-    const { teacherUid, deletedBy } = request.data;
+    const { teacherUid, deletedBy } = request.data || {};
 
     if (!teacherUid || !deletedBy) {
       throw new HttpsError('invalid-argument', 'Missing required fields');
@@ -253,49 +253,55 @@ exports.deleteTeacherAccount = onCall(
       if (!isSuperAdmin) {
         throw new HttpsError(
           'permission-denied',
-          'Only super admins can delete teacher accounts'
+          'Only super admins can archive teacher accounts'
         );
       }
 
       const teacherSnapshot = await db.ref(`roles/teacher/${teacherUid}`).once('value');
-      const teacherData = teacherSnapshot.val();
       const userSnapshot = await db.ref(`users/${teacherUid}`).once('value');
-      const userData = userSnapshot.val();
+      const teacherData = teacherSnapshot.val() || null;
+      const userData = userSnapshot.val() || null;
 
-      try {
-        await auth.deleteUser(teacherUid);
-      } catch (authError) {
-        if (authError?.code === 'auth/user-not-found') {
-          console.warn(`Auth user ${teacherUid} not found during deletion; continuing cleanup.`);
-        } else {
-          throw authError;
-        }
+      if (!teacherData && !userData) {
+        throw new HttpsError('not-found', 'Teacher account not found');
       }
 
-      const deletionTimestamp = new Date().toISOString();
+      const archivedAt = new Date().toISOString();
+      const displayName = teacherData?.displayName || userData?.displayName || null;
+      const email = teacherData?.email || userData?.email || null;
+      const teacherID = teacherData?.teacherID || userData?.teacherID || null;
+      const rfidUid = teacherData?.rfid_uid || null;
+      const normalizedEmail = email ? normalizeEmail(email) : null;
+      const emailKey = normalizedEmail ? encodeKey(normalizedEmail) : null;
+
       const archivedRecord = {
         teacherUid,
-        displayName: teacherData?.displayName || userData?.displayName || null,
-        email: teacherData?.email || userData?.email || null,
-        teacherID: teacherData?.teacherID || userData?.teacherID || null,
-        rfidUid: teacherData?.rfid_uid || null,
-        deletedAt: deletionTimestamp,
-        deletedBy,
+        displayName,
+        email,
+        teacherID,
+        rfidUid,
+        archivedAt,
+        archivedBy: deletedBy,
+        archivedReason: request.data?.reason || null,
         teacherData: teacherData || null,
         userData: userData || null,
       };
 
       await db.ref(`archived_teachers/${teacherUid}`).set(archivedRecord);
 
-      if (archivedRecord.email) {
-        const normalizedEmail = normalizeEmail(archivedRecord.email);
-        const emailKey = encodeKey(normalizedEmail);
-        await db.ref(`reactivated_teacher_links/${emailKey}`).remove();
+      if (emailKey) {
+        await db.ref(`reactivated_teacher_links/${emailKey}`).set({
+          originalUid: teacherUid,
+          email,
+          normalizedEmail,
+          rfidUid: rfidUid || null,
+          teacherID: teacherID || null,
+          archivedAt,
+        });
       }
 
       await Promise.all([
         db.ref(`roles/teacher/${teacherUid}`).remove(),
-        db.ref(`users/${teacherUid}`).remove(),
         teacherData?.rfid_uid
           ? db.ref(`rfid_tags/${teacherData.rfid_uid}/assignedTo`).remove()
           : Promise.resolve(),
@@ -313,29 +319,152 @@ exports.deleteTeacherAccount = onCall(
               ? db.ref().update(updates)
               : Promise.resolve();
           }),
+        db.ref(`fcm_tokens/${teacherUid}`).remove(),
       ]);
 
-      const adminActionKey = Date.now();
-      await db.ref(`admin_actions/${adminActionKey}`).set({
-        action: 'delete_teacher',
-        teacherUid: teacherUid,
-        teacherName: teacherData?.displayName || 'Unknown',
-        deletedBy: deletedBy,
-        archived: true,
+      await db.ref(`users/${teacherUid}`).set({
+        uid: teacherUid,
+        role: 'teacher',
+        displayName,
+        email,
+        teacherID,
+        accountStatus: 'archived',
+        archivedAt,
+        archivedBy: deletedBy,
+        lastLogin: userData?.lastLogin || null,
+        photoUrl: userData?.photoUrl || null,
+      });
+
+      try {
+        await auth.updateUser(teacherUid, {disabled: true});
+      } catch (authError) {
+        if (authError?.code === 'auth/user-not-found') {
+          console.warn(`Auth user ${teacherUid} not found during archive; continuing cleanup.`);
+        } else {
+          throw authError;
+        }
+      }
+
+      await db.ref(`admin_actions/${Date.now()}`).set({
+        action: 'archive_teacher',
+        teacherUid,
+        teacherName: displayName || 'Unknown',
+        archivedBy: deletedBy,
+        archivedAt,
         archivedPath: `archived_teachers/${teacherUid}`,
-        timestamp: deletionTimestamp,
       });
 
       return {
         success: true,
-        message:
-          'Teacher account deleted successfully. Note: Complete deletion from Firebase may take up to 30 days.',
+        message: 'Teacher account archived and login disabled.',
       };
     } catch (error) {
-      console.error('Error deleting teacher account:', error);
+      console.error('Error archiving teacher account:', error);
       throw new HttpsError(
         'internal',
-        'Failed to delete teacher account: ' + error.message
+        'Failed to archive teacher account: ' + error.message
+      );
+    }
+  }
+);
+
+// exports.deleteTeacherAccount = exports.archiveTeacherAccount;
+
+/**
+ * 
+ * delete a teacher account (irreversible)
+ * Only callable by super admins
+ */
+exports.hardDeleteTeacherAccount = onCall(
+  { region: 'asia-southeast1' },
+  async (request) => {
+    const { teacherUid, deletedBy } = request.data || {};
+
+    if (!teacherUid || !deletedBy) {
+      throw new HttpsError('invalid-argument', 'Missing required fields');
+    }
+
+    try {
+      const callerToken = request.auth;
+      if (!callerToken) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
+
+      const isSuperAdmin = await verifySuperAdmin(callerToken.uid);
+      if (!isSuperAdmin) {
+        throw new HttpsError(
+          'permission-denied',
+          'Only super admins can hard delete teacher accounts'
+        );
+      }
+
+      const [teacherSnapshot, userSnapshot, archivedSnapshot] = await Promise.all([
+        db.ref(`roles/teacher/${teacherUid}`).once('value'),
+        db.ref(`users/${teacherUid}`).once('value'),
+        db.ref(`archived_teachers/${teacherUid}`).once('value'),
+      ]);
+
+      const teacherData = teacherSnapshot.val() || null;
+      const userData = userSnapshot.val() || null;
+      const archivedData = archivedSnapshot.val() || null;
+      const email = archivedData?.email || teacherData?.email || userData?.email || null;
+      const rfidUid =
+        archivedData?.rfidUid || teacherData?.rfid_uid || userData?.rfid_uid || null;
+
+      try {
+        await auth.deleteUser(teacherUid);
+      } catch (authError) {
+        if (authError?.code === 'auth/user-not-found') {
+          console.warn(`Auth user ${teacherUid} already absent during hard delete.`);
+        } else {
+          throw authError;
+        }
+      }
+
+      await Promise.all([
+        db.ref(`roles/teacher/${teacherUid}`).remove(),
+        db.ref(`users/${teacherUid}`).remove(),
+        db.ref(`archived_teachers/${teacherUid}`).remove(),
+        db.ref(`fcm_tokens/${teacherUid}`).remove(),
+        db
+          .ref('appointments')
+          .orderByChild('teacherUid')
+          .equalTo(teacherUid)
+          .once('value')
+          .then((snapshot) => {
+            const updates = {};
+            snapshot.forEach((child) => {
+              updates[`appointments/${child.key}`] = null;
+            });
+            return Object.keys(updates).length > 0
+              ? db.ref().update(updates)
+              : Promise.resolve();
+          }),
+        rfidUid ? db.ref(`rfid_tags/${rfidUid}/assignedTo`).remove() : Promise.resolve(),
+      ]);
+
+      if (email) {
+        const normalizedEmail = normalizeEmail(email);
+        const emailKey = encodeKey(normalizedEmail);
+        await db.ref(`reactivated_teacher_links/${emailKey}`).remove();
+      }
+
+      await db.ref(`admin_actions/${Date.now()}`).set({
+        action: 'hard_delete_teacher',
+        teacherUid,
+        deletedBy,
+        timestamp: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        message: 'Teacher account permanently deleted.',
+      };
+    } catch (error) {
+      console.error('Error hard deleting teacher account:', error);
+      throw new HttpsError(
+        'internal',
+        'Failed to hard delete teacher account: ' + error.message
       );
     }
   }
@@ -523,6 +652,16 @@ exports.restoreArchivedTeacher = onCall(
       // Restore RFID assignment if present
       if (rfidUid && teacherIdForRfid) {
         await db.ref(`rfid_tags/${rfidUid}/assignedTo`).set(teacherIdForRfid);
+      }
+
+      try {
+        await auth.updateUser(teacherUid, {disabled: false});
+      } catch (authError) {
+        if (authError?.code === 'auth/user-not-found') {
+          console.warn(`Auth user ${teacherUid} missing during restore; skipping enable.`);
+        } else {
+          throw authError;
+        }
       }
 
       if (emailKey) {

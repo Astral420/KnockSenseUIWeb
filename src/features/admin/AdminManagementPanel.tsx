@@ -66,6 +66,7 @@ type AdminManagementPanelProps = {
   archivedError: string;
   loadArchivedTeachers: () => void;
   handleRestoreArchivedTeacher: (teacherUid: string) => void;
+  handleHardDeleteTeacher: (teacherUid: string) => void;
 };
 
 export function AdminManagementPanel({
@@ -88,6 +89,7 @@ export function AdminManagementPanel({
   archivedError,
   loadArchivedTeachers,
   handleRestoreArchivedTeacher,
+  handleHardDeleteTeacher,
 }: AdminManagementPanelProps) {
   return (
     <Card>
@@ -324,6 +326,36 @@ export function AdminManagementPanel({
                             className="bg-blue-600 hover:bg-blue-700"
                           >
                             Confirm Restore
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={(event) => event.stopPropagation()}
+                          disabled={archivedLoading}
+                          className="ml-3"
+                        >
+                          Hard Delete
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Permanently Delete Teacher</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently remove <b>{teacher.displayName || "this teacher"}</b> from Firebase Authentication, archive records, and all associated data. This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => handleHardDeleteTeacher(teacher.uid)}
+                          >
+                            Confirm Hard Delete
                           </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>

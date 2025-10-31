@@ -234,16 +234,31 @@ export const authService = {
     }
   },
 
-  deleteTeacherAccount: async (teacherUid) => {
+  archiveTeacherAccount: async (teacherUid, reason) => {
     try {
-      const deleteTeacher = httpsCallable(functions, 'deleteTeacherAccount');
-      const result = await deleteTeacher({
+      const archiveTeacher = httpsCallable(functions, 'archiveTeacherAccount');
+      const result = await archiveTeacher({
         teacherUid,
-        deletedBy: auth.currentUser?.uid
+        deletedBy: auth.currentUser?.uid,
+        reason: reason || null,
       });
       return result.data;
     } catch (error) {
-      console.error('Error deleting teacher account:', error);
+      console.error('Error archiving teacher account:', error);
+      throw error;
+    }
+  },
+
+  hardDeleteTeacherAccount: async (teacherUid) => {
+    try {
+      const hardDeleteTeacher = httpsCallable(functions, 'hardDeleteTeacherAccount');
+      const result = await hardDeleteTeacher({
+        teacherUid,
+        deletedBy: auth.currentUser?.uid,
+      });
+      return result.data;
+    } catch (error) {
+      console.error('Error hard deleting teacher account:', error);
       throw error;
     }
   },

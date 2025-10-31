@@ -926,13 +926,13 @@ export default function App() {
       if (isSuperAdmin) {
         try {
           setFacultyLoading(true);
-          const result = await authService.deleteTeacherAccount(facultyId);
-          toast.success(result.message);
+          const result = await authService.archiveTeacherAccount(facultyId);
+          toast.success(result?.message || "Teacher account archived.");
           setFacultyMembers((prev) => prev.filter((faculty) => faculty.id !== facultyId));
           await loadArchivedTeachers();
         } catch (error) {
-          console.error("Error deleting teacher:", error);
-          toast.error("Failed to delete teacher account: " + error);
+          console.error("Error archiving teacher:", error);
+          toast.error("Failed to archive teacher account: " + error);
         } finally {
           setFacultyLoading(false);
         }
@@ -941,6 +941,28 @@ export default function App() {
       }
     },
     [isSuperAdmin, adminPermissions.removeTeacherAccounts, loadArchivedTeachers],
+  );
+
+  const handleHardDeleteArchivedTeacher = useCallback(
+    async (teacherUid: string) => {
+      if (!isSuperAdmin) {
+        toast.error("Only super admins can hard delete teacher accounts.");
+        return;
+      }
+
+      try {
+        setArchivedLoading(true);
+        const result = await authService.hardDeleteTeacherAccount(teacherUid);
+        toast.success(result?.message || "Teacher account permanently deleted.");
+        await loadArchivedTeachers();
+      } catch (error: any) {
+        console.error("Error hard deleting teacher:", error);
+        toast.error(error?.message || "Failed to hard delete teacher account.");
+      } finally {
+        setArchivedLoading(false);
+      }
+    },
+    [isSuperAdmin, loadArchivedTeachers],
   );
 
   const handleCreateAdmin = useCallback(async () => {
@@ -1114,11 +1136,12 @@ export default function App() {
           archivedError={archivedError}
           loadArchivedTeachers={loadArchivedTeachers}
           handleRestoreArchivedTeacher={handleRestoreArchivedTeacher}
+          handleHardDeleteTeacher={handleHardDeleteArchivedTeacher}
         />
       );
     }
 
-    if (currentPage === "logs" && (isSuperAdmin || canSeeAccessLogs || canSeeAttendanceLogs)) {
+    if (currentPage === "logs" && isAdminLoggedIn) {
       return (
         <LogsPanel
           canSeeAccessLogs={canSeeAccessLogs}

@@ -6,7 +6,7 @@ import Sidebar from "@/features/layout/Sidebar";
 import HeaderBar from "@/features/layout/HeaderBar";
 import StudentDashboard from "@/features/student/StudentDashboard";
 import AdminDashboard from "@/features/admin/AdminDashboard";
-import AdminManagementPanel from "@/features/admin/AdminManagementPanel";
+import AdminManagementPanel, { type BannedTeacher } from "@/features/admin/AdminManagementPanel";
 import RfidManagement from "@/features/rfid/RfidManagement";
 import HardwareSettings from "@/features/hardware/HardwareSettings";
 import LogsPanel from "@/features/logs/LogsPanel";
@@ -117,6 +117,9 @@ export default function App() {
   const [archivedError, setArchivedError] = useState("");
   const [updatingPermissionKey, setUpdatingPermissionKey] = useState<string | null>(null);
   const [adminManagementOpen, setAdminManagementOpen] = useState(false);
+  const [bannedTeachers, setBannedTeachers] = useState<BannedTeacher[]>([]);
+  const [bannedLoading, setBannedLoading] = useState(false);
+  const [bannedError, setBannedError] = useState("");
 
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState("");
@@ -572,6 +575,24 @@ export default function App() {
     }
   }, []);
 
+  const loadBannedTeachers = useCallback(async () => {
+    if (!isSuperAdmin) {
+      setBannedTeachers([]);
+      return;
+    }
+    try {
+      setBannedLoading(true);
+      setBannedError("");
+      const banned = await authService.getBannedTeachers();
+      setBannedTeachers(banned);
+    } catch (error) {
+      console.error("Error loading banned teachers:", error);
+      setBannedError("Failed to load banned teachers.");
+    } finally {
+      setBannedLoading(false);
+    }
+  }, [isSuperAdmin]);
+
   const loadAdminAccounts = useCallback(async () => {
     try {
       setAdminLoading(true);
@@ -616,8 +637,9 @@ export default function App() {
     if (isSuperAdmin && currentPage === "admin-management") {
       loadAdminAccounts();
       loadArchivedTeachers();
+      loadBannedTeachers();
     }
-  }, [isSuperAdmin, currentPage, loadAdminAccounts, loadArchivedTeachers]);
+  }, [isSuperAdmin, currentPage, loadAdminAccounts, loadArchivedTeachers, loadBannedTeachers]);
 
   useEffect(() => {
     if (!(currentPage === "logs" && (isSuperAdmin || canSeeAccessLogs || canSeeAttendanceLogs))) {
@@ -955,6 +977,10 @@ export default function App() {
         const result = await authService.hardDeleteTeacherAccount(teacherUid);
         toast.success(result?.message || "Teacher account permanently deleted.");
         await loadArchivedTeachers();
+<<<<<<< HEAD
+=======
+        await loadBannedTeachers();
+>>>>>>> ebf1615 (auth service changes)
       } catch (error: any) {
         console.error("Error hard deleting teacher:", error);
         toast.error(error?.message || "Failed to hard delete teacher account.");
@@ -962,7 +988,38 @@ export default function App() {
         setArchivedLoading(false);
       }
     },
+<<<<<<< HEAD
     [isSuperAdmin, loadArchivedTeachers],
+=======
+    [isSuperAdmin, loadArchivedTeachers, loadBannedTeachers],
+  );
+
+  const handleUnbanTeacherEmail = useCallback(
+    async (email?: string | null) => {
+      if (!email) {
+        toast.error("Email not available for unbanning.");
+        return;
+      }
+
+      if (!isSuperAdmin) {
+        toast.error("Only super admins can unban teacher emails.");
+        return;
+      }
+
+      try {
+        setBannedLoading(true);
+        const result = await authService.unbanTeacherEmail(email);
+        toast.success(result?.message || "Teacher email unbanned successfully.");
+        await loadBannedTeachers();
+      } catch (error: any) {
+        console.error("Error unbanning teacher email:", error);
+        toast.error(error?.message || "Failed to unban teacher email.");
+      } finally {
+        setBannedLoading(false);
+      }
+    },
+    [isSuperAdmin, loadBannedTeachers],
+>>>>>>> ebf1615 (auth service changes)
   );
 
   const handleCreateAdmin = useCallback(async () => {
@@ -1137,6 +1194,14 @@ export default function App() {
           loadArchivedTeachers={loadArchivedTeachers}
           handleRestoreArchivedTeacher={handleRestoreArchivedTeacher}
           handleHardDeleteTeacher={handleHardDeleteArchivedTeacher}
+<<<<<<< HEAD
+=======
+          bannedTeachers={bannedTeachers}
+          bannedLoading={bannedLoading}
+          bannedError={bannedError}
+          loadBannedTeachers={loadBannedTeachers}
+          handleUnbanTeacherEmail={handleUnbanTeacherEmail}
+>>>>>>> ebf1615 (auth service changes)
         />
       );
     }

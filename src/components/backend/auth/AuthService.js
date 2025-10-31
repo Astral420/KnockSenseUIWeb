@@ -241,6 +241,10 @@ export const authService = {
         teacherUid,
         deletedBy: auth.currentUser?.uid,
         reason: reason || null,
+<<<<<<< HEAD
+=======
+        
+>>>>>>> ebf1615 (auth service changes)
       });
       return result.data;
     } catch (error) {
@@ -274,6 +278,17 @@ export const authService = {
     }
   },
 
+  getBannedTeachers: async () => {
+    try {
+      const getBanned = httpsCallable(functions, 'getBannedTeachers');
+      const result = await getBanned();
+      return result.data?.bannedTeachers || [];
+    } catch (error) {
+      console.error('Error fetching banned teachers:', error);
+      throw error;
+    }
+  },
+
   restoreArchivedTeacher: async (teacherUid) => {
     try {
       const restoreTeacher = httpsCallable(functions, 'restoreArchivedTeacher');
@@ -284,6 +299,17 @@ export const authService = {
       return result.data;
     } catch (error) {
       console.error('Error restoring archived teacher:', error);
+      throw error;
+    }
+  },
+
+  unbanTeacherEmail: async (email) => {
+    try {
+      const unbanTeacher = httpsCallable(functions, 'unbanTeacherEmail');
+      const result = await unbanTeacher({ email });
+      return result.data;
+    } catch (error) {
+      console.error('Error unbanning teacher email:', error);
       throw error;
     }
   },

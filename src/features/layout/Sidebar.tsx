@@ -100,7 +100,7 @@ export function Sidebar({
                   }`}
                 >
                   <Users className="w-5 h-5" />
-                  Admin Management
+                  Acct. Management
                 </button>
               )}
 

@@ -1,4 +1,4 @@
-import { ChangeEvent } from "react";
+import type { JSX } from "preact";
 import { ChevronDown, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ADMIN_PERMISSION_OPTIONS, AdminPermissionKey } from "@/features/admin/adminPermissions";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 
 interface AdminAccount {
   uid: string;
@@ -43,6 +48,17 @@ interface ArchivedTeacher {
   deletedAt?: string;
   teacherData?: unknown;
   userData?: unknown;
+  [key: string]: unknown;
+}
+
+export interface BannedTeacher {
+  emailKey?: string;
+  email?: string;
+  normalizedEmail?: string;
+  teacherUid?: string;
+  deletedBy?: string;
+  bannedAt?: string;
+  reason?: string;
   [key: string]: unknown;
 }
 
@@ -67,6 +83,14 @@ type AdminManagementPanelProps = {
   loadArchivedTeachers: () => void;
   handleRestoreArchivedTeacher: (teacherUid: string) => void;
   handleHardDeleteTeacher: (teacherUid: string) => void;
+<<<<<<< HEAD
+=======
+  bannedTeachers: BannedTeacher[];
+  bannedLoading: boolean;
+  bannedError: string;
+  loadBannedTeachers: () => void;
+  handleUnbanTeacherEmail: (email: string) => Promise<void> | void;
+>>>>>>> ebf1615 (auth service changes)
 };
 
 export function AdminManagementPanel({
@@ -90,13 +114,21 @@ export function AdminManagementPanel({
   loadArchivedTeachers,
   handleRestoreArchivedTeacher,
   handleHardDeleteTeacher,
+<<<<<<< HEAD
+=======
+  bannedTeachers,
+  bannedLoading,
+  bannedError,
+  loadBannedTeachers,
+  handleUnbanTeacherEmail,
+>>>>>>> ebf1615 (auth service changes)
 }: AdminManagementPanelProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Admin Account Management</CardTitle>
+        <CardTitle>Account Management</CardTitle>
         <p className="text-sm text-gray-600">
-          Create and manage admin accounts. Only super admins can access this section.
+          Create and manage accounts. Only super admins can access this section.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -110,7 +142,9 @@ export function AdminManagementPanel({
                 id="newAdminName"
                 placeholder="Enter admin's full name"
                 value={newAdminName}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onNewAdminNameChange(e.target.value)}
+                onChange={(e: JSX.TargetedEvent<HTMLInputElement, Event>) =>
+                  onNewAdminNameChange(e.currentTarget.value)
+                }
               />
             </div>
             <div className="space-y-2">
@@ -120,7 +154,9 @@ export function AdminManagementPanel({
                 type="email"
                 placeholder="Enter admin's email"
                 value={newAdminEmail}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onNewAdminEmailChange(e.target.value)}
+                onChange={(e: JSX.TargetedEvent<HTMLInputElement, Event>) =>
+                  onNewAdminEmailChange(e.currentTarget.value)
+                }
               />
             </div>
             <div className="space-y-2">
@@ -130,7 +166,9 @@ export function AdminManagementPanel({
                 type="password"
                 placeholder="Enter temporary password"
                 value={newAdminPassword}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onNewAdminPasswordChange(e.target.value)}
+                onChange={(e: JSX.TargetedEvent<HTMLInputElement, Event>) =>
+                  onNewAdminPasswordChange(e.currentTarget.value)
+                }
               />
             </div>
           </div>
@@ -384,6 +422,67 @@ export function AdminManagementPanel({
                       </div>
                     </div>
                   </details>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-lg font-semibold">Banned Teacher Emails</h3>
+              <p className="text-sm text-gray-500">
+                Hard-deleted teacher accounts are banned here. Remove a ban to allow re-employment logins.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadBannedTeachers} className="flex items-center gap-2">
+              Refresh
+            </Button>
+          </div>
+
+          {bannedLoading ? (
+            <div className="flex items-center justify-center py-6 text-gray-600">
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600"></div>
+                <span>Loading banned teachers...</span>
+              </div>
+            </div>
+          ) : bannedError ? (
+            <Alert variant="destructive">
+              <AlertTitle>Failed to load banned teachers</AlertTitle>
+              <AlertDescription>{bannedError}</AlertDescription>
+            </Alert>
+          ) : bannedTeachers.length === 0 ? (
+            <div className="p-4 text-sm text-gray-500 border border-dashed rounded-md">
+              No banned teachers recorded.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {bannedTeachers.map((teacher) => (
+                <div key={teacher.emailKey || teacher.email} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-900">{teacher.email || teacher.normalizedEmail}</h4>
+                      <p className="text-sm text-gray-500">
+                        {teacher.bannedAt ? `Banned at: ${new Date(teacher.bannedAt).toLocaleString()}` : 'Ban timestamp unavailable'}
+                      </p>
+                      {teacher.teacherUid && (
+                        <p className="text-xs text-gray-400">Original UID: {teacher.teacherUid}</p>
+                      )}
+                      {teacher.reason && (
+                        <p className="text-xs text-gray-500 mt-1">Reason: {teacher.reason}</p>
+                      )}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-green-600 border-green-200 hover:bg-green-50"
+                      onClick={() => handleUnbanTeacherEmail(teacher.email ?? teacher.normalizedEmail ?? "")}
+                    >
+                      Unban
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>

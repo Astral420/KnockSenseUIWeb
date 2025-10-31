@@ -1,8 +1,10 @@
+
 const functions = require('firebase-functions/v1');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { initializeApp } = require('firebase-admin/app');
 const { getAuth } = require('firebase-admin/auth');
 const { getDatabase } = require('firebase-admin/database');
+const { beforeUserCreated } = require('firebase-functions/v2/identity');
 
 // Initialize Firebase Admin
 initializeApp();
@@ -92,6 +94,127 @@ exports.createAdminAccount = onCall(
       throw new HttpsError(
         'internal',
         'Failed to create admin account: ' + error.message
+      );
+    }
+  }
+);
+
+exports.blockBannedTeacherSignup = beforeUserCreated({ region: 'asia-southeast1' }, async (event) => {
+  const email = event.data?.email;
+  if (!email) {
+    return;
+  }
+
+  const normalizedEmail = normalizeEmail(email);
+  const emailKey = encodeKey(normalizedEmail);
+
+  try {
+    const banSnapshot = await db.ref(`banned_teacher_emails/${emailKey}`).once('value');
+    if (banSnapshot.exists()) {
+      throw new HttpsError(
+        'permission-denied',
+        'This email address has been banned. Contact an administrator to regain access.'
+      );
+    }
+  } catch (error) {
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    console.error('Error checking banned teacher email during signup:', error);
+    throw new HttpsError('internal', 'Unable to complete signup at this time.');
+  }
+});
+
+exports.getBannedTeachers = onCall(
+  { region: 'asia-southeast1' },
+  async (request) => {
+    try {
+      const callerToken = request.auth;
+      if (!callerToken) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
+
+      const isSuperAdmin = await verifySuperAdmin(callerToken.uid);
+      if (!isSuperAdmin) {
+        throw new HttpsError('permission-denied', 'Only super admins can view banned teachers');
+      }
+
+      const snapshot = await db.ref('banned_teacher_emails').once('value');
+      const banned = snapshot.val() || {};
+      const list = Object.entries(banned).map(([key, value]) => ({
+        emailKey: key,
+        ...(value || {}),
+      }));
+
+      list.sort((a, b) => {
+        const aTime = a.bannedAt ? new Date(a.bannedAt).getTime() : 0;
+        const bTime = b.bannedAt ? new Date(b.bannedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      return {
+        success: true,
+        bannedTeachers: list,
+      };
+    } catch (error) {
+      console.error('Error getting banned teachers:', error);
+      throw new HttpsError(
+        'internal',
+        'Failed to get banned teachers: ' + error.message,
+      );
+    }
+  }
+);
+
+exports.unbanTeacherEmail = onCall(
+  { region: 'asia-southeast1' },
+  async (request) => {
+    const { email } = request.data || {};
+
+    if (!email) {
+      throw new HttpsError('invalid-argument', 'Missing email to unban');
+    }
+
+    try {
+      const callerToken = request.auth;
+      if (!callerToken) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
+
+      const isSuperAdmin = await verifySuperAdmin(callerToken.uid);
+      if (!isSuperAdmin) {
+        throw new HttpsError('permission-denied', 'Only super admins can unban teachers');
+      }
+
+      const normalizedEmail = normalizeEmail(email);
+      const emailKey = encodeKey(normalizedEmail);
+
+      const snapshot = await db.ref(`banned_teacher_emails/${emailKey}`).once('value');
+      if (!snapshot.exists()) {
+        return {
+          success: true,
+          message: 'Email was not banned.',
+        };
+      }
+
+      await db.ref(`banned_teacher_emails/${emailKey}`).remove();
+
+      await db.ref(`admin_actions/${Date.now()}`).set({
+        action: 'unban_teacher_email',
+        email,
+        unbannedBy: callerToken.uid,
+        timestamp: new Date().toISOString(),
+      });
+
+      return {
+        success: true,
+        message: 'Teacher email unbanned successfully.',
+      };
+    } catch (error) {
+      console.error('Error unbanning teacher email:', error);
+      throw new HttpsError(
+        'internal',
+        'Failed to unban teacher email: ' + error.message,
       );
     }
   }
@@ -249,11 +372,25 @@ exports.archiveTeacherAccount = onCall(
         throw new HttpsError('unauthenticated', 'User must be authenticated');
       }
 
-      const isSuperAdmin = await verifySuperAdmin(callerToken.uid);
-      if (!isSuperAdmin) {
+      const callerUid = callerToken.uid;
+      const isSuperAdmin = await verifySuperAdmin(callerUid);
+
+      let canArchive = isSuperAdmin;
+      if (!canArchive) {
+        const permissionSnapshot = await db
+          .ref(`roles/admin/${callerUid}/permissions/removeTeacherAccounts`)
+          .once('value');
+        canArchive = permissionSnapshot.val() === true;
+      }
+
+      if (!canArchive) {
         throw new HttpsError(
           'permission-denied',
+<<<<<<< HEAD
           'Only super admins can archive teacher accounts'
+=======
+          'Only super admins or admins with removeTeacherAccounts permission can archive teacher accounts'
+>>>>>>> ebf1615 (auth service changes)
         );
       }
 
@@ -368,7 +505,11 @@ exports.archiveTeacherAccount = onCall(
   }
 );
 
+<<<<<<< HEAD
 // exports.deleteTeacherAccount = exports.archiveTeacherAccount;
+=======
+exports.deleteTeacherAccount = exports.archiveTeacherAccount;
+>>>>>>> ebf1615 (auth service changes)
 
 /**
  * 
@@ -447,6 +588,17 @@ exports.hardDeleteTeacherAccount = onCall(
         const normalizedEmail = normalizeEmail(email);
         const emailKey = encodeKey(normalizedEmail);
         await db.ref(`reactivated_teacher_links/${emailKey}`).remove();
+<<<<<<< HEAD
+=======
+
+        await db.ref(`banned_teacher_emails/${emailKey}`).set({
+          email,
+          normalizedEmail,
+          teacherUid,
+          deletedBy,
+          bannedAt: new Date().toISOString(),
+        });
+>>>>>>> ebf1615 (auth service changes)
       }
 
       await db.ref(`admin_actions/${Date.now()}`).set({

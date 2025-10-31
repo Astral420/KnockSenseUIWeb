@@ -83,14 +83,13 @@ type AdminManagementPanelProps = {
   loadArchivedTeachers: () => void;
   handleRestoreArchivedTeacher: (teacherUid: string) => void;
   handleHardDeleteTeacher: (teacherUid: string) => void;
-<<<<<<< HEAD
-=======
+
   bannedTeachers: BannedTeacher[];
   bannedLoading: boolean;
   bannedError: string;
   loadBannedTeachers: () => void;
   handleUnbanTeacherEmail: (email: string) => Promise<void> | void;
->>>>>>> ebf1615 (auth service changes)
+
 };
 
 export function AdminManagementPanel({
@@ -114,14 +113,13 @@ export function AdminManagementPanel({
   loadArchivedTeachers,
   handleRestoreArchivedTeacher,
   handleHardDeleteTeacher,
-<<<<<<< HEAD
-=======
+
   bannedTeachers,
   bannedLoading,
   bannedError,
   loadBannedTeachers,
   handleUnbanTeacherEmail,
->>>>>>> ebf1615 (auth service changes)
+
 }: AdminManagementPanelProps) {
   return (
     <Card>
@@ -294,19 +292,11 @@ export function AdminManagementPanel({
 
         {/* Archived Teacher Accounts */}
         <div className="border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-lg font-semibold">Archived Teacher Accounts</h3>
-              <p className="text-sm text-gray-500">History of deleted teachers retained for audit.</p>
+              <p className="text-sm text-gray-500 mt-2">History of deleted teachers retained for audit.</p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadArchivedTeachers}
-              className="flex items-center gap-2"
-            >
-              <span>Refresh</span>
-            </Button>
           </div>
 
           {archivedLoading ? (
@@ -319,11 +309,11 @@ export function AdminManagementPanel({
           ) : archivedError ? (
             <div className="p-4 bg-red-50 text-red-600 rounded-md text-sm">{archivedError}</div>
           ) : archivedTeachers.length === 0 ? (
-            <div className="p-4 text-sm text-gray-500 border border-dashed rounded-md">
+            <div className="py-6 px-4 text-sm text-gray-500 border border-dashed rounded-md text-center">
               No archived teachers found.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 mt-4">
               {archivedTeachers.map((teacher) => (
                 <div
                   key={teacher.uid}
@@ -375,7 +365,7 @@ export function AdminManagementPanel({
                           size="sm"
                           onClick={(event) => event.stopPropagation()}
                           disabled={archivedLoading}
-                          className="ml-3"
+                          className="ml-1"
                         >
                           Hard Delete
                         </Button>
@@ -429,16 +419,13 @@ export function AdminManagementPanel({
         </div>
 
         <div className="border rounded-lg p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-6">
             <div>
               <h3 className="text-lg font-semibold">Banned Teacher Emails</h3>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-500 mt-2">
                 Hard-deleted teacher accounts are banned here. Remove a ban to allow re-employment logins.
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={loadBannedTeachers} className="flex items-center gap-2">
-              Refresh
-            </Button>
           </div>
 
           {bannedLoading ? (
@@ -454,11 +441,11 @@ export function AdminManagementPanel({
               <AlertDescription>{bannedError}</AlertDescription>
             </Alert>
           ) : bannedTeachers.length === 0 ? (
-            <div className="p-4 text-sm text-gray-500 border border-dashed rounded-md">
+            <div className="py-6 px-4 text-sm text-gray-500 border border-dashed rounded-md text-center">
               No banned teachers recorded.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 mt-4">
               {bannedTeachers.map((teacher) => (
                 <div key={teacher.emailKey || teacher.email} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
                   <div className="flex items-center justify-between mb-2">

@@ -241,10 +241,7 @@ export const authService = {
         teacherUid,
         deletedBy: auth.currentUser?.uid,
         reason: reason || null,
-<<<<<<< HEAD
-=======
-        
->>>>>>> ebf1615 (auth service changes)
+
       });
       return result.data;
     } catch (error) {

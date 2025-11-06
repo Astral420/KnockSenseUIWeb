@@ -394,19 +394,19 @@ export function AdminManagementPanel({
                       View raw snapshot
                     </summary>
                     <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      <div className="bg-gray-50 rounded-md p-3">
+                      <div className="bg-gray-50 rounded-md p-3 overflow-x-auto">
                         <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                           Teacher Data
                         </h5>
-                        <pre className="text-xs text-gray-700 whitespace-pre-wrap">
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
 {JSON.stringify(teacher.teacherData || {}, null, 2)}
                         </pre>
                       </div>
-                      <div className="bg-gray-50 rounded-md p-3">
+                      <div className="bg-gray-50 rounded-md p-3 overflow-x-auto">
                         <h5 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                           User Data
                         </h5>
-                        <pre className="text-xs text-gray-700 whitespace-pre-wrap">
+                        <pre className="text-xs text-gray-700 whitespace-pre-wrap break-words">
 {JSON.stringify(teacher.userData || {}, null, 2)}
                         </pre>
                       </div>

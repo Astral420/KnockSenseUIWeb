@@ -977,10 +977,9 @@ export default function App() {
         const result = await authService.hardDeleteTeacherAccount(teacherUid);
         toast.success(result?.message || "Teacher account permanently deleted.");
         await loadArchivedTeachers();
-<<<<<<< HEAD
-=======
+
         await loadBannedTeachers();
->>>>>>> ebf1615 (auth service changes)
+
       } catch (error: any) {
         console.error("Error hard deleting teacher:", error);
         toast.error(error?.message || "Failed to hard delete teacher account.");
@@ -988,9 +987,7 @@ export default function App() {
         setArchivedLoading(false);
       }
     },
-<<<<<<< HEAD
-    [isSuperAdmin, loadArchivedTeachers],
-=======
+
     [isSuperAdmin, loadArchivedTeachers, loadBannedTeachers],
   );
 
@@ -1019,7 +1016,7 @@ export default function App() {
       }
     },
     [isSuperAdmin, loadBannedTeachers],
->>>>>>> ebf1615 (auth service changes)
+
   );
 
   const handleCreateAdmin = useCallback(async () => {
@@ -1194,14 +1191,13 @@ export default function App() {
           loadArchivedTeachers={loadArchivedTeachers}
           handleRestoreArchivedTeacher={handleRestoreArchivedTeacher}
           handleHardDeleteTeacher={handleHardDeleteArchivedTeacher}
-<<<<<<< HEAD
-=======
+
           bannedTeachers={bannedTeachers}
           bannedLoading={bannedLoading}
           bannedError={bannedError}
           loadBannedTeachers={loadBannedTeachers}
           handleUnbanTeacherEmail={handleUnbanTeacherEmail}
->>>>>>> ebf1615 (auth service changes)
+
         />
       );
     }

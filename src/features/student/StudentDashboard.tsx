@@ -236,7 +236,7 @@ export function StudentDashboard({
                 </div>
 
                 <p className="mt-4 text-sm text-gray-600 max-w-sm mb-10">
-                  Scan the QR code with your phone to download our mobile app to be able to schedule
+                  Scan the QR code with your Android device to download our mobile app to be able to schedule
                   appointments with offline/busy professors.
                 </p>
 

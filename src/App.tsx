@@ -1416,7 +1416,7 @@ export default function App() {
           <div className="space-y-3 text-sm text-gray-700">
             <p>1. Open the camera on your mobile phone.</p>
             <p>2. Scan the QR code displayed on the dashboard to open the download link.</p>
-            <p>3. Install the application and sign in with your school Microsoft account.</p>
+            <p>3. Install the application's APK file and sign in with your school Microsoft account.</p>
             <p>4. Enable notifications so you never miss meeting updates.</p>
           </div>
           <DialogFooter>
